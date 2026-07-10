@@ -1,0 +1,1561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Countersign — RFP Response Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/docx/8.5.0/docx.umd.min.js"></script>
+<style>
+:root{
+  --paper:#F3F3ED;
+  --card:#FFFFFF;
+  --ink:#1F231F;
+  --ink-soft:#5B6157;
+  --line:#D9DACD;
+  --line-strong:#B9BBA9;
+  --green:#2F6B4F;
+  --green-soft:#E4EFE8;
+  --amber:#A96F08;
+  --amber-soft:#F5ECD8;
+  --red:#AE3B2A;
+  --red-soft:#F6E4E0;
+  --blue:#2456A6;
+  --hover:#FBFBF7;
+  --subtle:#FDFDFA;
+  --btn-hover:#000000;
+  --green-hover:#255A41;
+  --mono:'IBM Plex Mono',monospace;
+  --sans:'Instrument Sans',sans-serif;
+  --disp:'Archivo',sans-serif;
+}
+[data-theme="dark"]{
+  --paper:#141613;
+  --card:#1C1F1A;
+  --ink:#E7E8DF;
+  --ink-soft:#A2A797;
+  --line:#2C2F28;
+  --line-strong:#464B40;
+  --green:#6FB08D;
+  --green-soft:#1E2C24;
+  --amber:#D9A24A;
+  --amber-soft:#33290F;
+  --red:#D46B58;
+  --red-soft:#361F1A;
+  --blue:#7CA1DC;
+  --hover:#22251F;
+  --subtle:#191C17;
+  --btn-hover:#F7F8F0;
+  --green-hover:#82BD9E;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:var(--sans);
+  background:var(--paper);
+  color:var(--ink);
+  font-size:15px;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--green);color:var(--paper)}
+
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+.rail{
+  border-right:1px solid var(--line-strong);
+  background:var(--card);
+  padding:22px 18px;
+  display:flex;flex-direction:column;gap:6px;
+  position:sticky;top:0;height:100vh;
+}
+.wordmark{
+  font-family:var(--disp);
+  font-variation-settings:'wdth' 118;
+  font-weight:750;font-size:19px;letter-spacing:.01em;
+  display:flex;align-items:center;gap:9px;margin-bottom:4px;
+}
+.wordmark .seal{
+  width:26px;height:26px;border:2px solid var(--ink);border-radius:50%;
+  display:grid;place-items:center;font-family:var(--mono);font-size:11px;font-weight:600;
+  transform:rotate(-8deg);color:var(--green);border-color:var(--green);
+}
+.tagline{font-family:var(--mono);font-size:10.5px;color:var(--ink-soft);letter-spacing:.04em;margin-bottom:22px}
+.step{
+  display:flex;gap:11px;align-items:flex-start;text-align:left;
+  padding:11px 10px;border:1px solid transparent;border-radius:8px;
+  background:none;cursor:pointer;width:100%;font-family:var(--sans);color:var(--ink);
+}
+.step:hover{background:var(--paper)}
+.step.active{border-color:var(--ink);background:var(--paper)}
+.step .num{
+  font-family:var(--mono);font-size:11px;font-weight:600;
+  border:1.5px solid var(--ink);border-radius:4px;min-width:22px;height:22px;
+  display:grid;place-items:center;margin-top:1px;
+}
+.step.done .num{background:var(--green);border-color:var(--green);color:var(--card)}
+.step b{display:block;font-size:13.5px;font-weight:600}
+.step span{font-size:11.5px;color:var(--ink-soft);display:block;line-height:1.35}
+.rail-foot{margin-top:auto;display:flex;flex-direction:column;gap:10px}
+.provider-chip{
+  font-family:var(--mono);font-size:10.5px;padding:7px 9px;border:1px dashed var(--line-strong);
+  border-radius:6px;color:var(--ink-soft);display:flex;gap:7px;align-items:center;
+}
+.provider-chip .dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex:none}
+
+/* ---------- main ---------- */
+.main{padding:30px 38px 80px;max-width:1060px;width:100%}
+.page{display:none}
+.page.visible{display:block;animation:rise .25s ease}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--green);font-weight:600;margin-bottom:6px}
+h1{font-family:var(--disp);font-variation-settings:'wdth' 112;font-weight:700;font-size:27px;letter-spacing:-.01em;margin-bottom:6px}
+.lede{color:var(--ink-soft);max-width:620px;margin-bottom:26px;font-size:14.5px}
+
+.card{background:var(--card);border:1px solid var(--line-strong);border-radius:10px;padding:20px;margin-bottom:18px}
+.card h2{font-family:var(--disp);font-size:15px;font-weight:650;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.hint{font-size:12.5px;color:var(--ink-soft)}
+
+/* buttons */
+.btn{
+  font-family:var(--disp);font-weight:600;font-size:13.5px;
+  border:1.5px solid var(--ink);border-radius:7px;background:var(--ink);color:#fff;
+  padding:9px 16px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;
+}
+[data-theme="dark"] .btn{color:var(--paper)}
+[data-theme="dark"] .btn.ghost{color:var(--ink)}
+.btn:hover{background:var(--btn-hover)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.ghost:hover{background:var(--paper)}
+.btn.green{background:var(--green);border-color:var(--green)}
+.btn.green:hover{background:var(--green-hover)}
+.btn.small{padding:5px 10px;font-size:12px;border-width:1px}
+
+/* dropzone */
+.drop{
+  border:2px dashed var(--line-strong);border-radius:10px;padding:38px 20px;text-align:center;
+  cursor:pointer;transition:border-color .15s,background .15s;background:var(--card);
+}
+.drop.over,.drop:hover{border-color:var(--green);background:var(--green-soft)}
+.drop .big{font-family:var(--disp);font-weight:650;font-size:16px;margin-bottom:4px}
+.drop .fmt{font-family:var(--mono);font-size:11px;color:var(--ink-soft);margin-top:8px}
+
+/* doc table */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);text-align:left;padding:8px 10px;border-bottom:1.5px solid var(--ink)}
+td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+.ftype{font-family:var(--mono);font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:4px;border:1px solid var(--line-strong)}
+.ftype.pdf{color:var(--red);border-color:var(--red)}
+.ftype.docx{color:var(--blue);border-color:var(--blue)}
+.ftype.xlsx,.ftype.csv{color:var(--green);border-color:var(--green)}
+.mono{font-family:var(--mono);font-size:12px}
+.icon-btn{border:none;background:none;cursor:pointer;color:var(--ink-soft);font-size:15px;padding:4px}
+.icon-btn:hover{color:var(--red)}
+
+.meter{height:7px;background:var(--line);border-radius:99px;overflow:hidden;width:100%}
+.meter i{display:block;height:100%;background:var(--green);border-radius:99px;transition:width .3s}
+.meter.warn i{background:var(--amber)}
+.meter.bad i{background:var(--red)}
+
+/* question ledger — signature element */
+.ledger{display:flex;flex-direction:column;gap:12px}
+.q-row{background:var(--card);border:1px solid var(--line-strong);border-radius:10px;overflow:hidden}
+.q-head{display:flex;gap:14px;align-items:flex-start;padding:14px 16px;cursor:pointer}
+.q-head:hover{background:var(--hover)}
+.clause{
+  font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--green);
+  border:1.5px solid var(--green);border-radius:5px;padding:3px 7px;white-space:nowrap;margin-top:1px;
+}
+.q-text{flex:1;font-weight:500;font-size:14px;line-height:1.45}
+.q-meta{display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:118px}
+.stamp{
+  font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
+  padding:3px 9px;border:1.5px solid;border-radius:4px;transform:rotate(-2deg);user-select:none;
+}
+.stamp.draft{color:var(--ink-soft);border-color:var(--line-strong);transform:none}
+.stamp.generated{color:var(--amber);border-color:var(--amber)}
+.stamp.approved{color:var(--green);border-color:var(--green)}
+.stamp.error{color:var(--red);border-color:var(--red)}
+.coverage{display:flex;align-items:center;gap:7px;width:118px}
+.coverage .meter{width:70px}
+.coverage span{font-family:var(--mono);font-size:10px;color:var(--ink-soft)}
+.q-body{border-top:1px solid var(--line);padding:14px 16px;display:none;background:var(--subtle)}
+.q-row.open .q-body{display:block}
+.q-body textarea{
+  width:100%;min-height:130px;border:1px solid var(--line-strong);border-radius:7px;padding:11px;
+  font-family:var(--sans);font-size:13.5px;line-height:1.6;resize:vertical;background:var(--card);color:var(--ink);
+}
+.q-body textarea:focus{outline:2px solid var(--green);outline-offset:1px;border-color:transparent}
+.q-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
+.src-note{font-family:var(--mono);font-size:10.5px;color:var(--ink-soft);margin-left:auto}
+
+/* inputs */
+input[type=text],input[type=password],select,textarea.plain{
+  font-family:var(--sans);font-size:13.5px;border:1px solid var(--line-strong);border-radius:7px;
+  padding:9px 11px;background:var(--card);color:var(--ink);width:100%;
+}
+input:focus,select:focus,textarea.plain:focus{outline:2px solid var(--green);outline-offset:1px;border-color:transparent}
+label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:5px;font-weight:600}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+
+/* progress */
+.progress-wrap{display:flex;align-items:center;gap:12px;margin-top:14px}
+.progress-wrap .meter{flex:1;height:9px}
+.progress-label{font-family:var(--mono);font-size:11px;color:var(--ink-soft);white-space:nowrap}
+
+/* export cards */
+.fmt-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:18px}
+.fmt-card.disabled{opacity:.45;cursor:not-allowed}
+.qtype{
+  font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
+  padding:2px 7px;border-radius:99px;background:var(--paper);border:1px solid var(--line-strong);color:var(--ink-soft);white-space:nowrap;
+}
+.qtype.compliance{color:var(--green);border-color:var(--green)}
+.qtype.technical{color:var(--blue);border-color:var(--blue)}
+.qtype.commercial{color:var(--amber);border-color:var(--amber)}
+.gap-item{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line)}
+.gap-item:last-child{border-bottom:none}
+.gap-item .clause{margin-top:0}
+.gap-kw{font-family:var(--mono);font-size:10.5px;color:var(--red);background:var(--red-soft);border-radius:4px;padding:1px 6px;margin:2px 4px 0 0;display:inline-block}
+.map-panel{border:1px dashed var(--green);border-radius:8px;padding:14px;margin-top:14px;background:var(--green-soft)}
+.map-panel h3{font-family:var(--disp);font-size:13px;font-weight:650;margin-bottom:10px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+@media (max-width:900px){.grid4{grid-template-columns:1fr 1fr}}
+.fmt-card{
+  border:1.5px solid var(--line-strong);border-radius:10px;padding:18px;cursor:pointer;background:var(--card);
+  text-align:left;font-family:var(--sans);color:var(--ink);
+}
+.fmt-card:hover{border-color:var(--ink)}
+.fmt-card.sel{border-color:var(--green);background:var(--green-soft)}
+.fmt-card .ext{font-family:var(--mono);font-weight:600;font-size:13px;color:var(--green)}
+.fmt-card b{display:block;font-family:var(--disp);font-size:15px;margin:6px 0 3px}
+.fmt-card span{font-size:12px;color:var(--ink-soft)}
+
+/* modal */
+.modal-back{position:fixed;inset:0;background:rgba(31,35,31,.45);display:none;place-items:center;z-index:50;padding:20px}
+.modal-back.show{display:grid}
+.modal{background:var(--card);border-radius:12px;border:1px solid var(--line-strong);max-width:520px;width:100%;padding:24px;max-height:88vh;overflow:auto}
+.modal h2{font-family:var(--disp);font-size:17px;font-weight:700;margin-bottom:14px}
+.modal .row{margin-bottom:14px}
+
+/* toast */
+#toast{
+  position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);
+  font-family:var(--mono);font-size:12px;padding:10px 16px;border-radius:8px;opacity:0;pointer-events:none;
+  transition:opacity .2s;z-index:99;max-width:90vw;
+}
+#toast.show{opacity:1}
+#toast.err{background:var(--red);color:var(--card)}
+
+.empty{
+  text-align:center;padding:34px 16px;color:var(--ink-soft);font-size:13.5px;
+  border:1px dashed var(--line-strong);border-radius:10px;
+}
+.pill-count{font-family:var(--mono);font-size:10.5px;background:var(--paper);border:1px solid var(--line-strong);border-radius:99px;padding:2px 9px;color:var(--ink-soft)}
+.flex{display:flex;align-items:center;gap:10px}
+.spread{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid rgba(127,127,127,.35);border-top-color:currentColor;border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:900px){
+  .shell{grid-template-columns:1fr}
+  .rail{position:static;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center}
+  .rail-foot{margin:0;flex-direction:row}
+  .step b{font-size:12px}.step span{display:none}
+  .grid2,.grid3,.fmt-cards{grid-template-columns:1fr}
+  .main{padding:20px 16px 60px}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <!-- ============ RAIL ============ -->
+  <nav class="rail">
+    <div class="wordmark"><span class="seal">✓</span>Countersign</div>
+    <div class="tagline">RFP RESPONSE STUDIO</div>
+
+    <button class="step active" data-page="bucket" id="nav-bucket">
+      <span class="num">1</span>
+      <div><b>Documentation bucket</b><span>Upload the source of truth</span></div>
+    </button>
+    <button class="step" data-page="workspace" id="nav-workspace">
+      <span class="num">2</span>
+      <div><b>Response workspace</b><span>Parse the RFP, draft answers</span></div>
+    </button>
+    <button class="step" data-page="export" id="nav-export">
+      <span class="num">3</span>
+      <div><b>Export</b><span>DOCX, XLSX or CSV</span></div>
+    </button>
+
+    <div class="rail-foot">
+      <div class="provider-chip"><span class="dot" id="prov-dot"></span><span id="prov-label">Claude · built-in</span></div>
+      <div class="provider-chip" title="Where your workspace persists"><span class="dot" id="store-dot" style="background:var(--line-strong)"></span><span id="store-label">storage: …</span></div>
+      <button class="btn ghost small" id="theme-toggle">◐ Dark mode</button>
+      <button class="btn ghost small" id="open-settings">⚙ AI settings</button>
+    </div>
+  </nav>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+
+    <!-- ===== PAGE 1 · BUCKET ===== -->
+    <section class="page visible" id="page-bucket">
+      <div class="eyebrow">Step 1 · Source of truth</div>
+      <h1>Documentation bucket</h1>
+      <p class="lede">Drop your product docs, security policies, SOC 2 summaries, architecture overviews and past proposals — up to <b>500 source documents</b>. Countersign parses everything in your browser, indexes it for retrieval, and cites which sources ground each RFP answer.</p>
+
+      <div class="drop" id="dropzone" tabindex="0" role="button" aria-label="Upload documentation files">
+        <div class="big">Drop files here, or click to browse</div>
+        <div class="hint">Files are parsed locally — nothing is uploaded to a server. Multi-select or drop whole batches.</div>
+        <div class="fmt">.PDF · .DOCX · .XLSX · .CSV · .TXT · .MD — UP TO 500 SOURCES</div>
+        <input type="file" id="file-input" multiple accept=".pdf,.docx,.xlsx,.xls,.csv,.txt,.md" hidden>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="spread" style="margin-bottom:10px">
+          <h2 style="margin:0">Parsed documents <span class="pill-count" id="doc-count">0 files</span></h2>
+          <div class="flex" style="min-width:220px">
+            <span class="hint mono" id="storage-label">0 KB indexed</span>
+            <div class="meter" style="width:110px" id="storage-meter"><i style="width:0%"></i></div>
+          </div>
+        </div>
+        <div id="doc-list"><div class="empty">Nothing in the bucket yet. Everything you add here becomes retrievable context for step 2.</div></div>
+      </div>
+
+      <div class="card">
+        <h2>Self-hosting &amp; workspace directory file</h2>
+        <p class="hint" style="margin-bottom:12px">
+          This app is a single HTML file — drop it in your web root (e.g. <span class="mono">public_html/rfp/index.html</span>) and it runs as-is.
+          To ship a shared knowledge base with it, export the workspace as <span class="mono">countersign-data.json</span> and place it in the <b>same directory</b>:
+          the app auto-loads it on first open, so your whole team starts with the same 500-source bucket. On your own hosting, work also persists in each visitor's browser storage.
+          To share one API key across the team instead of everyone pasting their own, deploy the bundled <span class="mono">proxy.php</span> (shared hosting) or <span class="mono">proxy.js</span> (Node) — see the README — and pick <b>Team server proxy</b> in AI settings.
+        </p>
+        <div class="q-actions">
+          <button class="btn small" id="ws-export">↓ Export workspace file</button>
+          <button class="btn small ghost" id="ws-import">↑ Import workspace file</button>
+          <button class="btn small ghost" id="ws-fetch">⟳ Load from site directory</button>
+          <input type="file" id="ws-import-input" accept=".json" hidden>
+          <span class="hint mono" id="ws-note"></span>
+        </div>
+      </div>
+
+      <div class="spread">
+        <span class="hint">Documents persist between sessions on this device.</span>
+        <button class="btn green" id="to-workspace" disabled>Continue to workspace →</button>
+      </div>
+    </section>
+
+    <!-- ===== PAGE 2 · WORKSPACE ===== -->
+    <section class="page" id="page-workspace">
+      <div class="eyebrow">Step 2 · Draft &amp; review</div>
+      <h1>Response workspace</h1>
+      <p class="lede">Load the RFP, let the model extract every question into a ledger, then generate grounded answers. Each answer cites which bucket documents informed it — edit freely, then stamp it approved.</p>
+
+      <div class="card">
+        <h2>RFP source</h2>
+        <div class="grid2">
+          <div>
+            <label class="field">Upload the RFP file</label>
+            <button class="btn ghost" id="rfp-upload-btn" style="width:100%;justify-content:center">Choose file (.pdf .docx .xlsx .csv .txt)</button>
+            <input type="file" id="rfp-file-input" accept=".pdf,.docx,.xlsx,.xls,.csv,.txt,.md" hidden>
+            <div class="hint mono" id="rfp-file-label" style="margin-top:6px">No file loaded</div>
+          </div>
+          <div>
+            <label class="field">Or paste RFP text</label>
+            <textarea class="plain" id="rfp-paste" rows="3" placeholder="Paste requirements or questionnaire text…"></textarea>
+          </div>
+        </div>
+        <div class="map-panel" id="sheet-map" style="display:none">
+          <h3>Spreadsheet detected — map the columns</h3>
+          <div class="grid4">
+            <div>
+              <label class="field">Sheet</label>
+              <select id="map-sheet"></select>
+            </div>
+            <div>
+              <label class="field">Ref column (optional)</label>
+              <select id="map-ref"></select>
+            </div>
+            <div>
+              <label class="field">Question column</label>
+              <select id="map-q"></select>
+            </div>
+            <div>
+              <label class="field">Response column (for round-trip)</label>
+              <select id="map-ans"></select>
+            </div>
+          </div>
+          <div class="q-actions" style="margin-top:12px">
+            <label class="flex" style="gap:7px;font-size:13px"><input type="checkbox" id="map-header" checked> First row is a header</label>
+            <button class="btn green small" id="map-import">Import questions from columns</button>
+            <span class="hint mono" id="map-preview"></span>
+          </div>
+        </div>
+        <div class="q-actions" style="margin-top:14px">
+          <button class="btn" id="extract-btn">Extract questions</button>
+          <button class="btn ghost" id="add-q-btn">+ Add question manually</button>
+          <span class="hint mono" id="rfp-chars"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="spread" style="margin-bottom:6px">
+          <h2 style="margin:0">Question ledger <span class="pill-count" id="q-count">0 questions</span></h2>
+          <div class="flex">
+            <select id="tone-select" style="width:auto">
+              <option value="professional and precise">Tone: Professional</option>
+              <option value="warm, consultative and client-focused">Tone: Consultative</option>
+              <option value="concise and technical, for engineering evaluators">Tone: Technical</option>
+              <option value="formal, suitable for public-sector procurement">Tone: Formal / public sector</option>
+            </select>
+            <button class="btn green" id="generate-all">Generate all answers</button>
+          </div>
+        </div>
+        <div class="progress-wrap" id="gen-progress" style="display:none">
+          <div class="meter"><i id="gen-bar" style="width:0%"></i></div>
+          <span class="progress-label" id="gen-label">0 / 0</span>
+        </div>
+        <div class="ledger" id="ledger" style="margin-top:12px">
+          <div class="empty">No questions yet. Load an RFP above and extract, or add questions manually.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="spread" style="margin-bottom:6px">
+          <h2 style="margin:0">Coverage gap report <span class="pill-count" id="gap-count">—</span></h2>
+          <button class="btn ghost small" id="run-gaps">Run gap analysis</button>
+        </div>
+        <p class="hint" style="margin-bottom:8px">Checks every question against the bucket locally (no AI calls) and flags the ones your documentation can't substantiate — fix these before submission.</p>
+        <div id="gap-list"><div class="empty">Run the analysis once questions are in the ledger.</div></div>
+      </div>
+
+      <div class="spread">
+        <button class="btn ghost" data-page="bucket">← Back to bucket</button>
+        <button class="btn green" data-page="export">Continue to export →</button>
+      </div>
+    </section>
+
+    <!-- ===== PAGE 3 · EXPORT ===== -->
+    <section class="page" id="page-export">
+      <div class="eyebrow">Step 3 · Deliverable</div>
+      <h1>Export the response pack</h1>
+      <p class="lede">Assemble the ledger into a submission-ready file. DOCX gives you a formatted narrative document; XLSX and CSV mirror the compliance-matrix layout most procurement teams expect.</p>
+
+      <div class="fmt-cards">
+        <button class="fmt-card sel" data-fmt="docx">
+          <span class="ext">.DOCX</span><b>Word document</b>
+          <span>Cover page, numbered questions as headings, answers as body text.</span>
+        </button>
+        <button class="fmt-card" data-fmt="xlsx">
+          <span class="ext">.XLSX</span><b>Excel workbook</b>
+          <span>One row per question — ref, question, response, status, sources.</span>
+        </button>
+        <button class="fmt-card" data-fmt="csv">
+          <span class="ext">.CSV</span><b>CSV matrix</b>
+          <span>Plain compliance matrix for portals that ingest flat files.</span>
+        </button>
+        <button class="fmt-card disabled" data-fmt="roundtrip" id="fmt-roundtrip">
+          <span class="ext">.XLSX ↩</span><b>Round-trip workbook</b>
+          <span id="roundtrip-hint">Writes answers back into the issuer's original spreadsheet. Import an RFP via column mapping first.</span>
+        </button>
+      </div>
+
+      <div class="card">
+        <h2>Options</h2>
+        <div class="grid2">
+          <div>
+            <label class="field">Proposal title</label>
+            <input type="text" id="exp-title" placeholder="e.g. Response to Acme Corp RFP 2026-014">
+          </div>
+          <div>
+            <label class="field">Your company name</label>
+            <input type="text" id="exp-company" placeholder="e.g. Northwind Software Ltd.">
+          </div>
+        </div>
+        <div class="flex" style="margin-top:12px;gap:18px;flex-wrap:wrap">
+          <label class="flex" style="gap:7px;font-size:13px"><input type="checkbox" id="exp-approved-only"> Approved answers only</label>
+          <label class="flex" style="gap:7px;font-size:13px"><input type="checkbox" id="exp-sources" checked> Include source references</label>
+          <label class="flex" style="gap:7px;font-size:13px"><input type="checkbox" id="exp-gaps"> Append coverage gap report (DOCX &amp; XLSX)</label>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="spread" style="margin-bottom:10px">
+          <h2 style="margin:0">Preview</h2>
+          <span class="pill-count" id="exp-count">0 rows</span>
+        </div>
+        <div id="exp-preview" style="max-height:340px;overflow:auto"></div>
+      </div>
+
+      <div class="spread">
+        <button class="btn ghost" data-page="workspace">← Back to workspace</button>
+        <button class="btn green" id="download-btn">↓ Download file</button>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ============ SETTINGS MODAL ============ -->
+<div class="modal-back" id="settings-modal">
+  <div class="modal" role="dialog" aria-label="AI settings">
+    <h2>AI provider</h2>
+    <div class="row">
+      <label class="field">Provider</label>
+      <select id="set-provider">
+        <option value="claude">Claude (built-in — no key needed inside Claude.ai)</option>
+        <option value="claude-key">Claude (your Anthropic API key — for self-hosted)</option>
+        <option value="gemini">Google Gemini (bring your key)</option>
+        <option value="openai">OpenAI-compatible / Copilot endpoint (bring your key)</option>
+        <option value="proxy">Team server proxy (key stays on your server)</option>
+      </select>
+      <div class="hint" id="key-warning" style="display:none;margin-top:6px;color:var(--amber)">
+        ⚠ Keys are held in memory for this session only and sent solely to the provider. Never hard-code a key into a publicly hosted page — each user pastes their own.
+      </div>
+    </div>
+    <div class="row" id="key-row" style="display:none">
+      <label class="field" id="key-label">API key</label>
+      <input type="password" id="set-key" placeholder="Paste your API key" autocomplete="off">
+      <div class="hint" style="margin-top:5px">Stored only in this session's memory — never persisted or sent anywhere except the provider.</div>
+    </div>
+    <div class="row" id="base-row" style="display:none">
+      <label class="field">Base URL</label>
+      <input type="text" id="set-base" placeholder="https://api.openai.com/v1">
+      <div class="hint" style="margin-top:5px">Some enterprise/Copilot endpoints block browser calls (CORS). If requests fail, use the built-in Claude provider.</div>
+    </div>
+    <div class="row" id="model-row" style="display:none">
+      <label class="field">Model</label>
+      <input type="text" id="set-model" placeholder="e.g. gemini-2.0-flash or gpt-4o">
+    </div>
+    <div class="row">
+      <label class="field">Answer length targets, per question type</label>
+      <div class="grid2" style="gap:10px">
+        <div>
+          <label class="field" style="color:var(--green)">Compliance (yes/no)</label>
+          <select id="len-compliance">
+            <option value="50">~50 words</option>
+            <option value="80" selected>~80 words</option>
+            <option value="140">~140 words</option>
+          </select>
+        </div>
+        <div>
+          <label class="field" style="color:var(--blue)">Technical</label>
+          <select id="len-technical">
+            <option value="150">~150 words</option>
+            <option value="250" selected>~250 words</option>
+            <option value="350">~350 words</option>
+          </select>
+        </div>
+        <div>
+          <label class="field">Narrative / company</label>
+          <select id="len-narrative">
+            <option value="120">~120 words</option>
+            <option value="220" selected>~220 words</option>
+            <option value="320">~320 words</option>
+          </select>
+        </div>
+        <div>
+          <label class="field" style="color:var(--amber)">Commercial / pricing</label>
+          <select id="len-commercial">
+            <option value="80">~80 words</option>
+            <option value="150" selected>~150 words</option>
+            <option value="250">~250 words</option>
+          </select>
+        </div>
+      </div>
+      <div class="hint" style="margin-top:6px">Each question is auto-classified on import — you can reassign a type on any ledger row.</div>
+    </div>
+    <div class="q-actions">
+      <button class="btn" id="settings-save">Save settings</button>
+      <button class="btn ghost" id="settings-close">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script>
+/* ================================================================
+   Countersign — state, persistence, file parsing
+================================================================ */
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const S = {
+  docs: [],            // {id,name,type,size,chars,text}
+  questions: [],       // {id,ref,text,answer,status,sources,coverage}
+  settings: { provider:"claude", key:"", base:"", model:"",
+              lengths: { compliance:80, technical:250, narrative:220, commercial:150 } },
+  exportFmt: "docx",
+  generating: false
+};
+const QTYPES = { compliance:"Compliance", technical:"Technical", narrative:"Narrative", commercial:"Commercial" };
+function classify(text){
+  const t = text.toLowerCase().trim();
+  if(/\b(pric(e|ing)|cost|fees?\b|licen[cs]|subscription|discount|payment|invoice|commercial|quote)/.test(t)) return "commercial";
+  if(/^(do|does|is|are|can|will|has|have|must|shall)\b/.test(t) || /\b(yes\/no|confirm|compl(y|iant|iance)|certif|iso 27001|soc 2|gdpr|hipaa)/.test(t)) return "compliance";
+  if(/\b(architect|api\b|integrat|encrypt|security|sso\b|saml|scim|infrastructur|deploy|hosting|backup|disaster|uptime|sla\b|availab|scal(e|ab)|database|authenticat|audit log|penetration)/.test(t)) return "technical";
+  return "narrative";
+}
+const MAX_DOCS = 500;           // sources allowed in the bucket
+const MAX_DOC_CHARS = 220000;   // per-document cap
+const TOTAL_CHAR_BUDGET = 60e6; // ~60 MB of indexed text across the bucket
+const CHUNK_SIZE = 1100;        // retrieval chunk size (chars)
+const SHARD_BUDGET = 4.2e6;     // stay under 5MB per storage key; docs are sharded across keys
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtKB = (n) => n > 1e6 ? (n/1e6).toFixed(1)+" MB" : Math.max(1,Math.round(n/1024))+" KB";
+const uid = () => Math.random().toString(36).slice(2,9);
+
+function toast(msg, err=false){
+  const t = $("toast");
+  t.textContent = msg; t.className = err ? "show err" : "show";
+  clearTimeout(t._h); t._h = setTimeout(()=> t.className = "", 3200);
+}
+
+/* ---------- persistence: Claude cloud → browser localStorage (self-hosted) → memory ---------- */
+const backend = (() => {
+  try{
+    if(window.storage && window.storage.get)
+      return { name: "claude", label: "Claude cloud",
+        set: (k,v) => window.storage.set(k,v),
+        get: async k => { const r = await window.storage.get(k); return r ? r.value : null; },
+        del: k => window.storage.delete(k) };
+  }catch(e){}
+  try{
+    localStorage.setItem("__cs_probe","1"); localStorage.removeItem("__cs_probe");
+    return { name: "local", label: "this browser",
+      set: async (k,v) => localStorage.setItem(k,v),
+      get: async k => localStorage.getItem(k),
+      del: async k => localStorage.removeItem(k) };
+  }catch(e){}
+  const mem = {};
+  return { name: "memory", label: "memory only (this tab)",
+    set: async (k,v) => { mem[k] = v; },
+    get: async k => mem[k] ?? null,
+    del: async k => { delete mem[k]; } };
+})();
+const store = {
+  async save(key, val){
+    try{ await backend.set(key, JSON.stringify(val)); }
+    catch(e){
+      console.warn("persist failed", e);
+      if(backend.name === "local") toast("Browser storage quota hit — use “Export workspace file” to keep your bucket", true);
+    }
+  },
+  async load(key){
+    try{ const v = await backend.get(key); return v ? JSON.parse(v) : null; }
+    catch(e){ return null; }
+  },
+  async del(key){ try{ await backend.del(key); }catch(e){} }
+};
+
+/* Docs are split across cs-docs-0..N keys (each < 5MB), described by cs-docs-meta. */
+function serializableDoc(d){ return { id:d.id, name:d.name, type:d.type, size:d.size, chars:d.chars, text:d.text }; }
+let _persistTimer = null, _lastShardCount = 0;
+async function persistDocs(){
+  clearTimeout(_persistTimer);
+  _persistTimer = setTimeout(async () => {
+    const shards = [];
+    let cur = [], curSize = 2;
+    for(const d of S.docs){
+      const s = JSON.stringify(serializableDoc(d));
+      if(curSize + s.length > SHARD_BUDGET && cur.length){ shards.push(cur); cur = []; curSize = 2; }
+      cur.push(serializableDoc(d)); curSize += s.length + 1;
+    }
+    if(cur.length) shards.push(cur);
+    await store.save("cs-docs-meta", { shards: shards.length, count: S.docs.length, at: Date.now() });
+    for(let i = 0; i < shards.length; i++) await store.save("cs-docs-" + i, shards[i]);
+    for(let i = shards.length; i < _lastShardCount; i++) await store.del("cs-docs-" + i);
+    _lastShardCount = shards.length;
+  }, 400);
+}
+async function loadDocs(){
+  const meta = await store.load("cs-docs-meta");
+  if(meta && typeof meta.shards === "number"){
+    const out = [];
+    for(let i = 0; i < meta.shards; i++){
+      const shard = await store.load("cs-docs-" + i);
+      if(Array.isArray(shard)) out.push(...shard);
+    }
+    _lastShardCount = meta.shards;
+    return out;
+  }
+  // migrate from the old single-key format
+  const legacy = await store.load("cs-docs");
+  if(Array.isArray(legacy) && legacy.length){
+    setTimeout(() => { persistDocs(); store.del("cs-docs"); }, 800);
+    return legacy;
+  }
+  return [];
+}
+const persistQs = () => store.save("cs-questions", S.questions);
+
+/* ---------- file parsing ---------- */
+function extOf(name){ return name.split(".").pop().toLowerCase(); }
+
+async function parseFile(file){
+  const ext = extOf(file.name);
+  const buf = await file.arrayBuffer();
+  let text = "";
+  if(ext === "pdf"){
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const parts = [];
+    for(let p = 1; p <= pdf.numPages; p++){
+      const page = await pdf.getPage(p);
+      const tc = await page.getTextContent();
+      parts.push(tc.items.map(i => i.str).join(" "));
+    }
+    text = parts.join("\n\n");
+  } else if(ext === "docx"){
+    const res = await mammoth.extractRawText({ arrayBuffer: buf });
+    text = res.value;
+  } else if(ext === "xlsx" || ext === "xls" || ext === "csv"){
+    const wb = XLSX.read(buf, { type: "array" });
+    text = wb.SheetNames.map(n =>
+      "## Sheet: " + n + "\n" + XLSX.utils.sheet_to_csv(wb.Sheets[n])
+    ).join("\n\n");
+  } else { // txt / md
+    text = new TextDecoder().decode(buf);
+  }
+  text = text.replace(/\u0000/g,"").replace(/[ \t]+\n/g,"\n").trim();
+  if(!text) throw new Error("No extractable text (scanned PDF?)");
+  return text.slice(0, MAX_DOC_CHARS);
+}
+
+/* ---------- retrieval: score bucket chunks against a question ---------- */
+function chunksFor(doc){
+  if(doc._chunks) return doc._chunks;
+  const out = [];
+  for(let i = 0; i < doc.text.length; i += CHUNK_SIZE){
+    const t = doc.text.slice(i, i + CHUNK_SIZE + 200);
+    out.push({ text: t, low: t.toLowerCase() });
+  }
+  doc._chunks = out;
+  return out;
+}
+const STOP = new Set("the a an and or of to in for with on is are does do your our you we can how what which will be by as at from that this it its any all provide describe please detail".split(" "));
+function keywords(q){
+  return [...new Set(q.toLowerCase().replace(/[^a-z0-9 ]/g," ").split(/\s+/)
+    .filter(w => w.length > 2 && !STOP.has(w)))];
+}
+function retrieve(question, budget = 11000){
+  const kws = keywords(question);
+  const scored = [];
+  for(const d of S.docs){
+    // cheap doc-level prescreen so a 500-source bucket doesn't scan every chunk
+    if(!d._low) d._low = d.text.toLowerCase();
+    let hit = false;
+    for(const k of kws){ if(d._low.includes(k)){ hit = true; break; } }
+    if(!hit) continue;
+    for(const ch of chunksFor(d)){
+      let score = 0;
+      for(const k of kws) if(ch.low.includes(k)) score += 1;
+      if(score > 0) scored.push({ score, doc: d.name, text: ch.text });
+    }
+  }
+  scored.sort((a,b) => b.score - a.score);
+  const picked = []; const srcs = new Set(); let used = 0;
+  for(const c of scored){
+    if(used + c.text.length > budget) continue;
+    picked.push(c); srcs.add(c.doc); used += c.text.length;
+    if(picked.length >= 12) break;
+  }
+  const maxScore = Math.max(1, kws.length);
+  const coverage = scored.length ? Math.min(1, (scored[0].score / maxScore) * 0.6 + Math.min(picked.length,6)/6 * 0.4) : 0;
+  return {
+    context: picked.map(c => `[Source: ${c.doc}]\n${c.text}`).join("\n\n---\n\n"),
+    sources: [...srcs],
+    coverage
+  };
+}
+
+/* ---------- AI providers ---------- */
+async function askAI(prompt){
+  const p = S.settings;
+  if(p.provider === "claude" || p.provider === "claude-key"){
+    const headers = { "Content-Type": "application/json" };
+    if(p.provider === "claude-key"){
+      if(!p.key) throw new Error("Add your Anthropic API key in AI settings");
+      headers["x-api-key"] = p.key;
+      headers["anthropic-version"] = "2023-06-01";
+      headers["anthropic-dangerous-direct-browser-access"] = "true";
+    }
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: p.provider === "claude-key" ? (p.model || "claude-sonnet-4-6") : "claude-sonnet-4-6",
+        max_tokens: 1000,
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+    if(!r.ok) throw new Error("Claude API " + r.status + (r.status === 401 ? " — check your API key" : ""));
+    const data = await r.json();
+    return (data.content || []).map(b => b.type === "text" ? b.text : "").join("");
+  }
+  if(p.provider === "proxy"){
+    const url = p.base || "proxy.php";
+    const headers = { "Content-Type": "application/json" };
+    if(p.key) headers["X-Team-Token"] = p.key;   // key field doubles as the team token here
+    const r = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: p.model || "claude-sonnet-4-6",
+        max_tokens: 1000,
+        messages: [{ role: "user", content: prompt }]
+      })
+    });
+    const text = await r.text();
+    if(!r.ok){
+      let msg = "Proxy " + r.status;
+      try{ msg += " — " + JSON.parse(text).error.message; }catch(e){}
+      if(r.status === 401) msg += " (check the team token)";
+      throw new Error(msg);
+    }
+    const data = JSON.parse(text);
+    return (data.content || []).map(b => b.type === "text" ? b.text : "").join("");
+  }
+  if(p.provider === "gemini"){
+    if(!p.key) throw new Error("Add your Gemini API key in AI settings");
+    const model = p.model || "gemini-2.0-flash";
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(p.key)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    });
+    if(!r.ok) throw new Error("Gemini API " + r.status);
+    const data = await r.json();
+    return data.candidates?.[0]?.content?.parts?.map(x => x.text).join("") || "";
+  }
+  // openai-compatible
+  if(!p.key) throw new Error("Add your API key in AI settings");
+  const base = (p.base || "https://api.openai.com/v1").replace(/\/$/,"");
+  const r = await fetch(base + "/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + p.key },
+    body: JSON.stringify({
+      model: p.model || "gpt-4o-mini",
+      max_tokens: 1000,
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+  if(!r.ok) throw new Error("API " + r.status + " (endpoint may block browser calls)");
+  const data = await r.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+function parseJSONish(text){
+  const clean = text.replace(/```json|```/g, "").trim();
+  const start = clean.indexOf("["), end = clean.lastIndexOf("]");
+  return JSON.parse(start >= 0 ? clean.slice(start, end + 1) : clean);
+}
+
+/* ================================================================
+   Page 1 — documentation bucket
+================================================================ */
+const dz = $("dropzone"), fi = $("file-input");
+dz.addEventListener("click", () => fi.click());
+dz.addEventListener("keydown", e => { if(e.key==="Enter"||e.key===" ") fi.click(); });
+["dragover","dragenter"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("over"); }));
+["dragleave","drop"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("over"); }));
+dz.addEventListener("drop", e => ingestFiles(e.dataTransfer.files));
+fi.addEventListener("change", () => { ingestFiles(fi.files); fi.value = ""; });
+
+async function ingestFiles(fileList){
+  const files = [...fileList];
+  let skippedDupes = 0, parsed = 0;
+  for(const f of files){
+    if(S.docs.length >= MAX_DOCS){
+      toast(`Bucket is at its ${MAX_DOCS}-source limit — remove documents to add more`, true);
+      break;
+    }
+    if(S.docs.some(d => d.name === f.name && d.size === f.size)){ skippedDupes++; continue; }
+    const row = { id: uid(), name: f.name, type: extOf(f.name), size: f.size, chars: 0, text: "", _loading: true };
+    S.docs.push(row); renderDocs();
+    try{
+      row.text = await parseFile(f);
+      row.chars = row.text.length;
+      const total = S.docs.reduce((a,d) => a + d.chars, 0);
+      if(total > TOTAL_CHAR_BUDGET){
+        S.docs = S.docs.filter(d => d.id !== row.id);
+        toast(`Bucket text budget (~${fmtKB(TOTAL_CHAR_BUDGET)}) reached — ${f.name} not added`, true);
+        renderDocs();
+        break;
+      }
+      row._loading = false;
+      parsed++;
+    }catch(err){
+      S.docs = S.docs.filter(d => d.id !== row.id);
+      toast(`Couldn't parse ${f.name}: ${err.message}`, true);
+    }
+    renderDocs();
+  }
+  if(parsed) toast(`Added ${parsed} document${parsed === 1 ? "" : "s"} to the bucket` + (skippedDupes ? ` · ${skippedDupes} duplicate${skippedDupes === 1 ? "" : "s"} skipped` : ""));
+  else if(skippedDupes) toast(`${skippedDupes} duplicate file${skippedDupes === 1 ? "" : "s"} skipped — already in the bucket`);
+  await persistDocs();
+}
+
+function renderDocs(){
+  const el = $("doc-list");
+  $("doc-count").textContent = S.docs.length + " / " + MAX_DOCS + " sources";
+  const total = S.docs.reduce((a,d) => a + d.chars, 0);
+  $("storage-label").textContent = fmtKB(total) + " indexed";
+  const pct = Math.min(100, Math.max(total / TOTAL_CHAR_BUDGET, S.docs.length / MAX_DOCS) * 100);
+  const m = $("storage-meter");
+  m.querySelector("i").style.width = pct + "%";
+  m.className = "meter" + (pct > 85 ? " bad" : pct > 60 ? " warn" : "");
+  $("to-workspace").disabled = S.docs.length === 0;
+
+  if(!S.docs.length){
+    el.innerHTML = '<div class="empty">Nothing in the bucket yet. Everything you add here becomes retrievable context for step 2.</div>';
+    return;
+  }
+  el.innerHTML = `<table><thead><tr>
+      <th>Document</th><th>Type</th><th>File size</th><th>Extracted text</th><th></th>
+    </tr></thead><tbody>` +
+    S.docs.map(d => `<tr>
+      <td style="font-weight:500">${esc(d.name)}</td>
+      <td><span class="ftype ${d.type}">${d.type.toUpperCase()}</span></td>
+      <td class="mono">${fmtKB(d.size)}</td>
+      <td class="mono">${d._loading ? "parsing…" : fmtKB(d.chars)}</td>
+      <td><button class="icon-btn" data-del="${d.id}" title="Remove" aria-label="Remove ${esc(d.name)}">✕</button></td>
+    </tr>`).join("") + "</tbody></table>";
+  el.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    S.docs = S.docs.filter(d => d.id !== b.dataset.del);
+    renderDocs(); await persistDocs();
+  });
+}
+
+/* ================================================================
+   Page 2 — response workspace
+================================================================ */
+let rfpText = "";
+let rfpWorkbook = null, rfpFileName = "", rfpMapping = null;
+
+$("rfp-upload-btn").onclick = () => $("rfp-file-input").click();
+$("rfp-file-input").addEventListener("change", async e => {
+  const f = e.target.files[0]; if(!f) return;
+  $("rfp-file-label").textContent = "Parsing " + f.name + "…";
+  try{
+    const ext = extOf(f.name);
+    if(["xlsx","xls","csv"].includes(ext)){
+      rfpWorkbook = XLSX.read(await f.arrayBuffer(), { type: "array", cellStyles: true });
+      rfpFileName = f.name;
+      setupSheetMap();
+    } else {
+      rfpWorkbook = null; rfpMapping = null;
+      $("sheet-map").style.display = "none";
+      updateRoundtripCard();
+    }
+    rfpText = await parseFile(f);
+    $("rfp-file-label").textContent = f.name + " · " + fmtKB(rfpText.length);
+    $("rfp-chars").textContent = fmtKB(rfpText.length) + " of RFP text loaded";
+  }catch(err){
+    $("rfp-file-label").textContent = "No file loaded";
+    toast("Couldn't parse RFP: " + err.message, true);
+  }
+  e.target.value = "";
+});
+
+/* ---------- spreadsheet-native RFPs: column mapping ---------- */
+function sheetGrid(name){
+  return XLSX.utils.sheet_to_json(rfpWorkbook.Sheets[name], { header: 1, defval: "" });
+}
+function setupSheetMap(){
+  const sel = $("map-sheet");
+  sel.innerHTML = rfpWorkbook.SheetNames.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+  // pick the sheet with the most rows by default
+  let best = rfpWorkbook.SheetNames[0], bestRows = -1;
+  for(const n of rfpWorkbook.SheetNames){
+    const r = sheetGrid(n).length;
+    if(r > bestRows){ best = n; bestRows = r; }
+  }
+  sel.value = best;
+  populateColumns();
+  $("sheet-map").style.display = "block";
+}
+function populateColumns(){
+  const grid = sheetGrid($("map-sheet").value);
+  const header = grid[0] || [];
+  const nCols = Math.max(header.length, ...grid.slice(0, 20).map(r => r.length), 1);
+  const opt = (c) => {
+    const letter = XLSX.utils.encode_col(c);
+    const label = String(header[c] || "").trim().slice(0, 24);
+    return `<option value="${c}">${letter}${label ? " — " + esc(label) : ""}</option>`;
+  };
+  const opts = Array.from({ length: nCols }, (_, c) => opt(c)).join("");
+  $("map-ref").innerHTML = `<option value="-1">(auto-number)</option>` + opts;
+  $("map-q").innerHTML = opts;
+  $("map-ans").innerHTML = `<option value="-1">(skip — no round-trip)</option>` + opts;
+  // guess: question column = header containing question/requirement, else longest average text
+  let qGuess = -1;
+  header.forEach((h, c) => { if(/question|requirement|criteri|item|description/i.test(String(h))) qGuess = c; });
+  if(qGuess < 0){
+    let bestLen = 0;
+    for(let c = 0; c < nCols; c++){
+      const avg = grid.slice(1, 30).reduce((a, r) => a + String(r[c] || "").length, 0);
+      if(avg > bestLen){ bestLen = avg; qGuess = c; }
+    }
+  }
+  $("map-q").value = String(Math.max(0, qGuess));
+  let refGuess = -1;
+  header.forEach((h, c) => { if(/^(ref|#|id|no\.?|number|section|clause)$/i.test(String(h).trim())) refGuess = c; });
+  $("map-ref").value = String(refGuess);
+  let ansGuess = -1;
+  header.forEach((h, c) => { if(/response|answer|vendor|supplier|reply/i.test(String(h))) ansGuess = c; });
+  $("map-ans").value = String(ansGuess);
+  previewMap();
+}
+function previewMap(){
+  const grid = sheetGrid($("map-sheet").value);
+  const start = $("map-header").checked ? 1 : 0;
+  const qc = +$("map-q").value;
+  const n = grid.slice(start).filter(r => String(r[qc] || "").trim().length > 7).length;
+  $("map-preview").textContent = n + " question rows detected";
+}
+$("map-sheet").onchange = populateColumns;
+["map-q","map-ref","map-ans"].forEach(id => $(id).onchange = previewMap);
+$("map-header").onchange = previewMap;
+
+$("map-import").onclick = async () => {
+  const sheet = $("map-sheet").value;
+  const grid = sheetGrid(sheet);
+  const start = $("map-header").checked ? 1 : 0;
+  const qc = +$("map-q").value, rc = +$("map-ref").value, ac = +$("map-ans").value;
+  rfpMapping = { sheet, headerRows: start, qCol: qc, refCol: rc, ansCol: ac, file: rfpFileName };
+  let added = 0;
+  for(let r = start; r < grid.length; r++){
+    const qt = String(grid[r][qc] || "").trim();
+    if(qt.length < 8) continue;
+    const ref = rc >= 0 && String(grid[r][rc] || "").trim() ? String(grid[r][rc]).trim() : "Q" + (S.questions.length + 1);
+    S.questions.push({ id: uid(), ref, text: qt, type: classify(qt), answer: "", status: "draft",
+                       sources: [], coverage: null, srcSheet: sheet, srcRow: r });
+    added++;
+  }
+  renderLedger(); await persistQs();
+  updateRoundtripCard();
+  toast(`Imported ${added} questions from ${sheet} — round-trip export is now available`);
+};
+function updateRoundtripCard(){
+  const ok = !!(rfpWorkbook && rfpMapping && rfpMapping.ansCol >= 0);
+  const card = $("fmt-roundtrip");
+  card.classList.toggle("disabled", !ok);
+  $("roundtrip-hint").textContent = ok
+    ? `Fills column ${XLSX.utils.encode_col(rfpMapping.ansCol)} of “${rfpMapping.sheet}” in ${rfpMapping.file} with your answers.`
+    : "Writes answers back into the issuer's original spreadsheet. Import an RFP via column mapping (with a response column) first.";
+  if(!ok && S.exportFmt === "roundtrip"){ S.exportFmt = "xlsx"; syncFmtCards(); }
+}
+
+$("extract-btn").onclick = async () => {
+  const pasted = $("rfp-paste").value.trim();
+  const source = (rfpText + "\n" + pasted).trim();
+  if(source.length < 40) return toast("Load an RFP file or paste text first", true);
+  const btn = $("extract-btn");
+  btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Extracting…';
+  try{
+    const raw = await askAI(
+`You are an RFP analyst. Below is text from a Request for Proposal. Extract every distinct question or requirement a vendor must respond to.
+
+Respond with ONLY a JSON array, no prose, no markdown fences. Each item: {"ref":"short section ref like 3.2 or Q7 if present, else sequential Q1..","q":"the question, lightly cleaned up","type":"one of: compliance (yes/no confirmations), technical (architecture, security, integrations), commercial (pricing, licensing, terms), narrative (company, approach, references)"}.
+Extract at most 40 of the most substantive items. Merge trivial duplicates.
+
+RFP TEXT:
+${source.slice(0, 55000)}`);
+    const items = parseJSONish(raw);
+    let added = 0;
+    for(const it of items){
+      if(!it.q) continue;
+      const qtext = String(it.q);
+      S.questions.push({ id: uid(), ref: String(it.ref || "Q" + (S.questions.length+1)), text: qtext,
+        type: QTYPES[it.type] ? it.type : classify(qtext),
+        answer: "", status: "draft", sources: [], coverage: null });
+      added++;
+    }
+    renderLedger(); await persistQs();
+    toast(`Extracted ${added} questions into the ledger`);
+    if(source.length > 55000) toast("Long RFP — first ~55k characters were scanned. Add any missed questions manually.");
+  }catch(err){
+    toast("Extraction failed: " + err.message, true);
+  }
+  btn.disabled = false; btn.textContent = "Extract questions";
+};
+
+$("add-q-btn").onclick = () => {
+  const q = prompt("Question text:");
+  if(!q || !q.trim()) return;
+  S.questions.push({ id: uid(), ref: "Q" + (S.questions.length+1), text: q.trim(), type: classify(q), answer: "", status: "draft", sources: [], coverage: null });
+  renderLedger(); persistQs();
+};
+
+function answerPrompt(q, retrieval){
+  const tone = $("tone-select").value;
+  const type = q.type || "narrative";
+  const words = S.settings.lengths[type] || 220;
+  const typeRules = {
+    compliance: 'This is a COMPLIANCE question: open with a one-word verdict — "Yes.", "No." or "Partially." — then substantiate in a short paragraph. Only answer "Yes" if the reference material supports it.',
+    technical: "This is a TECHNICAL question: be concrete about architecture, standards and mechanisms; evaluators are engineers. Avoid marketing language.",
+    commercial: "This is a COMMERCIAL question: describe the pricing/licensing model and flexibility without quoting exact figures unless they appear in the reference material.",
+    narrative: "This is a NARRATIVE question: tell a credible, client-focused story about capability and approach."
+  };
+  return `You are a senior proposal writer for a SaaS vendor, drafting an answer to one RFP question.
+
+Write in first-person plural ("we", "our platform"), tone: ${tone}. Target about ${words} words. ${typeRules[type]} Be specific and confident; never invent certifications, customers, SLAs or numbers that are not in the reference material. If the reference material doesn't cover something, answer at the level it supports and note what can be confirmed on request. Respond with the answer text only — no headings, no preamble.
+
+REFERENCE MATERIAL FROM OUR DOCUMENTATION:
+${retrieval.context || "(No matching documentation found — write a competent generic SaaS response and clearly hedge specifics.)"}
+
+RFP QUESTION (${q.ref}): ${q.text}`;
+}
+
+async function generateOne(q){
+  const retrieval = retrieve(q.text);
+  q.coverage = retrieval.coverage;
+  q.sources = retrieval.sources;
+  q.status = "working"; renderLedger();
+  try{
+    q.answer = (await askAI(answerPrompt(q, retrieval))).trim();
+    q.status = "generated";
+  }catch(err){
+    q.status = "error";
+    toast(`(${q.ref}) ${err.message}`, true);
+  }
+  renderLedger(); await persistQs();
+}
+
+$("generate-all").onclick = async () => {
+  if(S.generating) return;
+  const todo = S.questions.filter(q => !q.answer && q.status !== "approved");
+  if(!todo.length) return toast("Every question already has an answer");
+  if(!S.docs.length) toast("Bucket is empty — answers will be generic. Add docs in step 1 for grounded responses.");
+  S.generating = true;
+  const wrap = $("gen-progress"), bar = $("gen-bar"), label = $("gen-label");
+  wrap.style.display = "flex";
+  for(let i = 0; i < todo.length; i++){
+    label.textContent = `${i} / ${todo.length} · ${todo[i].ref}`;
+    bar.style.width = (i / todo.length * 100) + "%";
+    await generateOne(todo[i]);
+  }
+  bar.style.width = "100%"; label.textContent = `${todo.length} / ${todo.length} · done`;
+  setTimeout(() => wrap.style.display = "none", 1600);
+  S.generating = false;
+  toast("Draft answers generated — review and stamp approvals");
+};
+
+function covMeter(c){
+  if(c === null) return '<span class="hint mono">—</span>';
+  const pct = Math.round(c * 100);
+  const cls = pct >= 60 ? "" : pct >= 30 ? " warn" : " bad";
+  return `<div class="coverage"><div class="meter${cls}"><i style="width:${pct}%"></i></div><span>${pct}% cov</span></div>`;
+}
+const STAMPS = { draft:"Draft", working:"Working…", generated:"Generated", approved:"Approved", error:"Failed" };
+
+function renderLedger(openIds){
+  openIds = openIds || [...document.querySelectorAll(".q-row.open")].map(r => r.dataset.id);
+  const el = $("ledger");
+  $("q-count").textContent = S.questions.length + (S.questions.length === 1 ? " question" : " questions");
+  if(!S.questions.length){
+    el.innerHTML = '<div class="empty">No questions yet. Load an RFP above and extract, or add questions manually.</div>';
+    renderExport(); return;
+  }
+  el.innerHTML = S.questions.map(q => `
+    <div class="q-row ${openIds.includes(q.id) ? "open" : ""}" data-id="${q.id}">
+      <div class="q-head" data-toggle="${q.id}">
+        <span class="clause">${esc(q.ref)}</span>
+        <div class="q-text">${esc(q.text)}
+          <div style="margin-top:5px"><span class="qtype ${q.type || "narrative"}">${QTYPES[q.type] || "Narrative"} · ~${S.settings.lengths[q.type || "narrative"]}w</span></div>
+        </div>
+        <div class="q-meta">
+          <span class="stamp ${q.status === "working" ? "generated" : q.status}">${STAMPS[q.status] || q.status}</span>
+          ${covMeter(q.coverage)}
+        </div>
+      </div>
+      <div class="q-body">
+        <textarea data-ans="${q.id}" placeholder="No answer yet — generate or write one.">${esc(q.answer)}</textarea>
+        <div class="q-actions">
+          <button class="btn small" data-gen="${q.id}">${q.answer ? "Regenerate" : "Generate answer"}</button>
+          <select data-type="${q.id}" style="width:auto;padding:5px 8px;font-size:12px">
+            ${Object.entries(QTYPES).map(([k,v]) => `<option value="${k}" ${ (q.type||"narrative")===k ? "selected" : ""}>${v} (~${S.settings.lengths[k]}w)</option>`).join("")}
+          </select>
+          <button class="btn small green" data-approve="${q.id}">${q.status === "approved" ? "Unapprove" : "Stamp approved"}</button>
+          <button class="btn small ghost" data-delq="${q.id}">Delete</button>
+          <span class="src-note">${q.sources.length ? "Grounded in: " + esc(q.sources.slice(0,3).join(", ")) + (q.sources.length > 3 ? " +" + (q.sources.length-3) : "") : "No sources matched yet"}</span>
+        </div>
+      </div>
+    </div>`).join("");
+
+  el.querySelectorAll("[data-toggle]").forEach(h => h.onclick = () =>
+    h.closest(".q-row").classList.toggle("open"));
+  el.querySelectorAll("[data-ans]").forEach(t => {
+    t.onclick = e => e.stopPropagation();
+    t.onchange = () => {
+      const q = S.questions.find(x => x.id === t.dataset.ans);
+      q.answer = t.value;
+      if(q.status === "draft" && t.value) q.status = "generated";
+      persistQs(); renderExport();
+    };
+  });
+  el.querySelectorAll("[data-gen]").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    generateOne(S.questions.find(x => x.id === b.dataset.gen));
+  });
+  el.querySelectorAll("[data-approve]").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const q = S.questions.find(x => x.id === b.dataset.approve);
+    q.status = q.status === "approved" ? "generated" : "approved";
+    renderLedger(); persistQs();
+  });
+  el.querySelectorAll("[data-delq]").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    S.questions = S.questions.filter(x => x.id !== b.dataset.delq);
+    renderLedger(); persistQs();
+  });
+  el.querySelectorAll("[data-type]").forEach(sel => {
+    sel.onclick = e => e.stopPropagation();
+    sel.onchange = e => {
+      e.stopPropagation();
+      S.questions.find(x => x.id === sel.dataset.type).type = sel.value;
+      renderLedger(); persistQs();
+    };
+  });
+  renderExport(); renderGaps();
+}
+
+/* ================================================================
+   Coverage gap report (local analysis, no AI calls)
+================================================================ */
+let _kwMemo = new Map(), _kwSig = "";
+function bucketHasKw(k){
+  const sig = S.docs.length + ":" + S.docs.reduce((a,d) => a + d.chars, 0);
+  if(sig !== _kwSig){ _kwMemo = new Map(); _kwSig = sig; }
+  if(_kwMemo.has(k)) return _kwMemo.get(k);
+  let found = false;
+  for(const d of S.docs){
+    if(!d._low) d._low = d.text.toLowerCase();
+    if(d._low.includes(k)){ found = true; break; }
+  }
+  _kwMemo.set(k, found);
+  return found;
+}
+function missingKeywords(q){
+  return keywords(q.text).filter(k => !bucketHasKw(k)).slice(0, 6);
+}
+$("run-gaps").onclick = async () => {
+  if(!S.questions.length) return toast("Add questions to the ledger first", true);
+  if(!S.docs.length) return toast("The bucket is empty — add documentation in step 1 first", true);
+  for(const q of S.questions){
+    const r = retrieve(q.text);
+    q.coverage = r.coverage;
+    if(!q.sources.length) q.sources = r.sources;
+  }
+  renderLedger(); await persistQs();
+  toast("Gap analysis complete");
+};
+function gapRows(){
+  return S.questions.filter(q => q.coverage !== null && q.coverage < 0.4)
+    .sort((a,b) => a.coverage - b.coverage);
+}
+function renderGaps(){
+  const el = $("gap-list");
+  const analysed = S.questions.filter(q => q.coverage !== null).length;
+  const gaps = gapRows();
+  $("gap-count").textContent = analysed ? `${gaps.length} of ${analysed} flagged` : "—";
+  if(!analysed){
+    el.innerHTML = '<div class="empty">Run the analysis once questions are in the ledger.</div>';
+    return;
+  }
+  if(!gaps.length){
+    el.innerHTML = '<div class="empty" style="border-color:var(--green);color:var(--green)">No gaps — every analysed question is substantiated by the bucket.</div>';
+    return;
+  }
+  // topics to add: most common missing keywords across gaps
+  const freq = {};
+  const gapData = gaps.map(q => {
+    const miss = missingKeywords(q);
+    miss.forEach(k => freq[k] = (freq[k] || 0) + 1);
+    return { q, miss };
+  });
+  const topics = Object.entries(freq).sort((a,b) => b[1] - a[1]).slice(0, 10).map(x => x[0]);
+  el.innerHTML =
+    (topics.length ? `<div style="margin-bottom:10px;padding:10px 12px;background:var(--amber-soft);border:1px solid var(--amber);border-radius:8px;font-size:13px">
+      <b style="font-family:var(--disp)">Suggested documentation to add:</b> material covering
+      ${topics.map(t => `<span class="gap-kw" style="color:var(--amber);background:transparent;border:1px solid var(--amber)">${esc(t)}</span>`).join("")}
+    </div>` : "") +
+    gapData.map(({ q, miss }) => `
+      <div class="gap-item">
+        <span class="clause" style="border-color:var(--red);color:var(--red)">${esc(q.ref)}</span>
+        <div style="flex:1">
+          <div style="font-size:13.5px;font-weight:500">${esc(q.text.slice(0,140))}${q.text.length > 140 ? "…" : ""}</div>
+          <div style="margin-top:3px">${miss.length ? "Bucket has nothing on: " + miss.map(k => `<span class="gap-kw">${esc(k)}</span>`).join("") : '<span class="hint mono">weak matches only — answer will lean generic</span>'}</div>
+        </div>
+        <div style="min-width:90px;text-align:right">${covMeter(q.coverage)}</div>
+      </div>`).join("");
+}
+
+/* ================================================================
+   Page 3 — export
+================================================================ */
+function syncFmtCards(){
+  document.querySelectorAll(".fmt-card").forEach(x => x.classList.toggle("sel", x.dataset.fmt === S.exportFmt));
+}
+document.querySelectorAll(".fmt-card").forEach(c => c.onclick = () => {
+  if(c.classList.contains("disabled"))
+    return toast("Round-trip needs a spreadsheet RFP imported via column mapping, with a response column chosen", true);
+  S.exportFmt = c.dataset.fmt; syncFmtCards();
+});
+["exp-approved-only","exp-sources","exp-gaps"].forEach(id => $(id).onchange = renderExport);
+
+function exportRows(){
+  let rows = S.questions.filter(q => q.answer);
+  if($("exp-approved-only").checked) rows = rows.filter(q => q.status === "approved");
+  return rows;
+}
+function renderExport(){
+  const rows = exportRows();
+  $("exp-count").textContent = rows.length + " rows";
+  const showSrc = $("exp-sources").checked;
+  $("exp-preview").innerHTML = rows.length
+    ? `<table><thead><tr><th>Ref</th><th>Type</th><th>Question</th><th>Response</th><th>Status</th>${showSrc ? "<th>Sources</th>" : ""}</tr></thead><tbody>` +
+      rows.map(q => `<tr>
+        <td class="mono">${esc(q.ref)}</td>
+        <td><span class="qtype ${q.type || "narrative"}">${QTYPES[q.type] || "Narrative"}</span></td>
+        <td style="max-width:200px">${esc(q.text.slice(0,110))}${q.text.length > 110 ? "…" : ""}</td>
+        <td style="max-width:300px" class="hint">${esc(q.answer.slice(0,140))}${q.answer.length > 140 ? "…" : ""}</td>
+        <td><span class="stamp ${q.status}">${STAMPS[q.status]}</span></td>
+        ${showSrc ? `<td class="mono" style="font-size:10.5px">${esc(q.sources.join(", "))}</td>` : ""}
+      </tr>`).join("") + "</tbody></table>"
+    : '<div class="empty">Nothing to export yet — generate answers in step 2' + ($("exp-approved-only").checked ? ", or untick “approved only”." : ".") + '</div>';
+}
+
+function downloadBlob(blob, name){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+$("download-btn").onclick = async () => {
+  const rows = exportRows();
+  if(!rows.length) return toast("Nothing to export yet", true);
+  const title = $("exp-title").value.trim() || "RFP Response";
+  const company = $("exp-company").value.trim();
+  const showSrc = $("exp-sources").checked;
+  const safe = title.replace(/[^a-z0-9 _-]/gi,"").replace(/\s+/g,"_").slice(0,60) || "rfp_response";
+
+  const withGaps = $("exp-gaps").checked;
+  const gaps = gapRows();
+
+  if(S.exportFmt === "csv"){
+    const head = ["Ref","Type","Question","Response","Status"].concat(showSrc ? ["Sources"] : []);
+    const q = v => '"' + String(v).replace(/"/g,'""') + '"';
+    const csv = [head.map(q).join(",")].concat(rows.map(r =>
+      [r.ref, QTYPES[r.type] || "Narrative", r.text, r.answer, STAMPS[r.status]].concat(showSrc ? [r.sources.join("; ")] : []).map(q).join(",")
+    )).join("\r\n");
+    downloadBlob(new Blob(["\uFEFF" + csv], { type: "text/csv" }), safe + ".csv");
+
+  } else if(S.exportFmt === "xlsx"){
+    const data = rows.map(r => {
+      const o = { Ref: r.ref, Type: QTYPES[r.type] || "Narrative", Question: r.text, Response: r.answer, Status: STAMPS[r.status] };
+      if(showSrc) o.Sources = r.sources.join("; ");
+      return o;
+    });
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws["!cols"] = [{wch:8},{wch:12},{wch:50},{wch:80},{wch:12}].concat(showSrc ? [{wch:34}] : []);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Responses");
+    if(withGaps && gaps.length){
+      const gws = XLSX.utils.json_to_sheet(gaps.map(g => ({
+        Ref: g.ref, Question: g.text, "Coverage %": Math.round(g.coverage * 100),
+        "Missing topics": missingKeywords(g).join(", ")
+      })));
+      gws["!cols"] = [{wch:8},{wch:60},{wch:12},{wch:44}];
+      XLSX.utils.book_append_sheet(wb, gws, "Coverage gaps");
+    }
+    XLSX.writeFile(wb, safe + ".xlsx");
+
+  } else if(S.exportFmt === "roundtrip"){
+    if(!(rfpWorkbook && rfpMapping && rfpMapping.ansCol >= 0))
+      return toast("Round-trip needs a mapped spreadsheet RFP with a response column", true);
+    const ws = rfpWorkbook.Sheets[rfpMapping.sheet];
+    const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+    let written = 0;
+    for(const r of rows){
+      if(r.srcSheet !== rfpMapping.sheet || typeof r.srcRow !== "number") continue;
+      ws[XLSX.utils.encode_cell({ r: r.srcRow, c: rfpMapping.ansCol })] = { t: "s", v: r.answer };
+      range.e.c = Math.max(range.e.c, rfpMapping.ansCol);
+      range.e.r = Math.max(range.e.r, r.srcRow);
+      written++;
+    }
+    ws["!ref"] = XLSX.utils.encode_range(range);
+    XLSX.writeFile(rfpWorkbook, safe + "_completed.xlsx");
+    return toast(`Wrote ${written} answers into ${rfpMapping.file} → downloaded as ${safe}_completed.xlsx`);
+
+  } else { // docx
+    const D = docx;
+    const children = [
+      new D.Paragraph({ text: title, heading: D.HeadingLevel.TITLE }),
+      ...(company ? [new D.Paragraph({ children: [new D.TextRun({ text: company, bold: true })] })] : []),
+      new D.Paragraph({ text: "Generated with Countersign · " + new Date().toLocaleDateString(), spacing: { after: 400 } })
+    ];
+    for(const r of rows){
+      children.push(new D.Paragraph({ text: r.ref + " — " + r.text, heading: D.HeadingLevel.HEADING_2, spacing: { before: 300, after: 120 } }));
+      r.answer.split(/\n{2,}/).forEach(par =>
+        children.push(new D.Paragraph({ text: par.replace(/\n/g," "), spacing: { after: 120 } })));
+      if(showSrc && r.sources.length)
+        children.push(new D.Paragraph({ children: [new D.TextRun({ text: "Sources: " + r.sources.join(", "), italics: true, size: 18, color: "5B6157" })], spacing: { after: 200 } }));
+    }
+    if(withGaps && gaps.length){
+      children.push(new D.Paragraph({ text: "Appendix — Coverage gap report (internal)", heading: D.HeadingLevel.HEADING_1, pageBreakBefore: true, spacing: { after: 200 } }));
+      children.push(new D.Paragraph({ text: "Questions where the documentation bucket provided weak or no substantiation. Review before submission.", spacing: { after: 200 } }));
+      for(const g of gaps){
+        children.push(new D.Paragraph({ children: [
+          new D.TextRun({ text: g.ref + " (" + Math.round(g.coverage * 100) + "% coverage): ", bold: true }),
+          new D.TextRun({ text: g.text })
+        ], spacing: { after: 60 } }));
+        const miss = missingKeywords(g);
+        if(miss.length) children.push(new D.Paragraph({ children: [new D.TextRun({ text: "No source material on: " + miss.join(", "), italics: true, color: "AE3B2A", size: 18 })], spacing: { after: 160 } }));
+      }
+    }
+    const doc = new D.Document({ sections: [{ children }] });
+    downloadBlob(await D.Packer.toBlob(doc), safe + ".docx");
+  }
+  toast("Downloaded " + safe + "." + S.exportFmt);
+};
+
+/* ================================================================
+   Navigation, settings, boot
+================================================================ */
+document.querySelectorAll("[data-page]").forEach(b => b.addEventListener("click", () => showPage(b.dataset.page)));
+$("to-workspace").onclick = () => showPage("workspace");
+function showPage(name){
+  document.querySelectorAll(".page").forEach(p => p.classList.remove("visible"));
+  $("page-" + name).classList.add("visible");
+  document.querySelectorAll(".rail .step").forEach(s => s.classList.toggle("active", s.dataset.page === name));
+  $("nav-bucket").classList.toggle("done", S.docs.length > 0 && name !== "bucket");
+  $("nav-workspace").classList.toggle("done", S.questions.some(q => q.answer) && name === "export");
+  if(name === "export") renderExport();
+  window.scrollTo({ top: 0 });
+}
+
+const modal = $("settings-modal");
+$("open-settings").onclick = () => { syncSettingsUI(); modal.classList.add("show"); };
+$("settings-close").onclick = () => modal.classList.remove("show");
+modal.addEventListener("click", e => { if(e.target === modal) modal.classList.remove("show"); });
+$("set-provider").onchange = syncSettingsUI;
+function syncSettingsUI(){
+  const p = $("set-provider").value;
+  $("key-row").style.display = p === "claude" ? "none" : "block";
+  $("key-label").textContent = p === "proxy" ? "Team token (if your proxy requires one)" : "API key";
+  $("set-key").placeholder = p === "proxy" ? "Shared team passphrase — leave blank if the proxy has none" : "Paste your API key";
+  $("model-row").style.display = p === "claude" ? "none" : "block";
+  $("base-row").style.display = (p === "openai" || p === "proxy") ? "block" : "none";
+  $("set-base").placeholder = p === "proxy" ? "proxy.php  ·  or  https://yourhost:8787/proxy" : "https://api.openai.com/v1";
+  $("key-warning").style.display = (p === "claude" || p === "proxy") ? "none" : "block";
+  $("set-model").placeholder = p === "claude-key" ? "claude-sonnet-4-6 (default)"
+    : p === "proxy" ? "claude-sonnet-4-6 (proxy enforces its allowlist)"
+    : p === "gemini" ? "e.g. gemini-2.0-flash" : "e.g. gpt-4o";
+}
+const PROV_NAMES = { claude: "Claude · built-in", "claude-key": "Claude · your key", gemini: "Gemini · your key", openai: "OpenAI-compat · your key", proxy: "Claude · team proxy" };
+function syncProviderChip(){
+  $("prov-label").textContent = PROV_NAMES[S.settings.provider] || S.settings.provider;
+  const ready = S.settings.provider === "claude" || S.settings.provider === "proxy" || S.settings.key;
+  $("prov-dot").style.background = ready ? "var(--green)" : "var(--amber)";
+}
+$("settings-save").onclick = () => {
+  S.settings.provider = $("set-provider").value;
+  S.settings.key = $("set-key").value.trim();
+  S.settings.base = $("set-base").value.trim();
+  S.settings.model = $("set-model").value.trim();
+  for(const t of Object.keys(QTYPES))
+    S.settings.lengths[t] = parseInt($("len-" + t).value, 10);
+  syncProviderChip();
+  modal.classList.remove("show");
+  // persist everything except the API key
+  store.save("cs-settings", { ...S.settings, key: "" });
+  renderLedger();
+  toast("AI settings saved");
+};
+
+/* ---------- dark mode ---------- */
+let theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+function applyTheme(){
+  document.documentElement.dataset.theme = theme;
+  $("theme-toggle").textContent = theme === "dark" ? "◑ Light mode" : "◐ Dark mode";
+}
+applyTheme();
+$("theme-toggle").onclick = () => {
+  theme = theme === "dark" ? "light" : "dark";
+  applyTheme(); store.save("cs-theme", theme);
+};
+
+/* ---------- workspace directory file (for public_html hosting) ---------- */
+function workspaceSnapshot(){
+  return { app: "countersign", version: 2, exportedAt: new Date().toISOString(),
+           docs: S.docs.map(serializableDoc), questions: S.questions, settings: { ...S.settings, key: "" } };
+}
+$("ws-export").onclick = () => {
+  downloadBlob(new Blob([JSON.stringify(workspaceSnapshot())], { type: "application/json" }), "countersign-data.json");
+  toast("Exported — upload countersign-data.json to the same directory as this HTML file");
+};
+$("ws-import").onclick = () => $("ws-import-input").click();
+$("ws-import-input").onchange = async e => {
+  const f = e.target.files[0]; if(!f) return;
+  try{ await importWorkspace(JSON.parse(await f.text()), "file"); }
+  catch(err){ toast("Invalid workspace file: " + err.message, true); }
+  e.target.value = "";
+};
+async function importWorkspace(obj, sourceLabel){
+  if(!obj || obj.app !== "countersign" || !Array.isArray(obj.docs)) throw new Error("not a Countersign workspace");
+  S.docs = obj.docs.slice(0, MAX_DOCS).map(d => ({ ...d }));
+  if(Array.isArray(obj.questions))
+    S.questions = obj.questions.map(q => ({ ...q, type: q.type || classify(q.text), status: q.status === "working" ? "generated" : q.status }));
+  if(obj.settings && obj.settings.lengths)
+    S.settings = { ...S.settings, ...obj.settings, key: S.settings.key, provider: S.settings.provider };
+  renderDocs(); renderLedger();
+  await persistDocs(); await persistQs();
+  toast(`Workspace loaded from ${sourceLabel}: ${S.docs.length} sources, ${S.questions.length} questions`);
+}
+async function fetchDirectoryFile(manual){
+  try{
+    const r = await fetch("countersign-data.json", { cache: "no-store" });
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const ct = r.headers.get("content-type") || "";
+    const obj = ct.includes("json") ? await r.json() : JSON.parse(await r.text());
+    await importWorkspace(obj, "site directory");
+    $("ws-note").textContent = "countersign-data.json auto-loaded from this directory";
+  }catch(err){
+    if(manual) toast("No countersign-data.json found next to this page (" + err.message + ")", true);
+  }
+}
+$("ws-fetch").onclick = () => fetchDirectoryFile(true);
+
+(async function boot(){
+  $("store-label").textContent = "storage: " + backend.label;
+  $("store-dot").style.background = backend.name === "memory" ? "var(--amber)" : "var(--green)";
+  const savedTheme = await store.load("cs-theme");
+  if(savedTheme === "dark" || savedTheme === "light"){ theme = savedTheme; applyTheme(); }
+  S.docs = await loadDocs();
+  const qs = await store.load("cs-questions");
+  if(Array.isArray(qs)) S.questions = qs.map(q => ({ ...q, type: q.type || classify(q.text), status: q.status === "working" ? "generated" : q.status }));
+  const st = await store.load("cs-settings");
+  if(st && st.lengths){
+    S.settings = { ...S.settings, ...st, key: "" };
+    $("set-provider").value = S.settings.provider;
+    for(const t of Object.keys(QTYPES)){
+      const sel = $("len-" + t);
+      if([...sel.options].some(o => o.value == S.settings.lengths[t])) sel.value = S.settings.lengths[t];
+    }
+  }
+  syncProviderChip();
+  renderDocs(); renderLedger();
+  if(S.docs.length || S.questions.length) toast("Restored your previous session");
+  else await fetchDirectoryFile(false);   // fresh visitor on self-hosted copy → try the directory file
+})();
+</script>
+</body>
+</html>

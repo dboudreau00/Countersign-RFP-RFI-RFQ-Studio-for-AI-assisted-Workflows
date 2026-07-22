@@ -279,7 +279,7 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
   <!-- ============ RAIL ============ -->
   <nav class="rail">
     <div class="wordmark"><span class="seal">✓</span>Countersign</div>
-    <div class="tagline">RFP RESPONSE STUDIO</div>
+    <div class="tagline">RFP RESPONSE STUDIO · <span id="ver"></span></div>
 
     <button class="step active" data-page="bucket" id="nav-bucket">
       <span class="num">1</span>
@@ -604,6 +604,7 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
+const APP_VERSION = "1.0.0";
 const S = {
   docs: [],            // {id,name,type,size,chars,text}
   questions: [],       // {id,ref,text,answer,status,sources,coverage}
@@ -1494,7 +1495,7 @@ function renderExport(){
         <td><span class="qtype ${q.type || "narrative"}">${QTYPES[q.type] || "Narrative"}</span></td>
         <td style="max-width:200px">${esc(q.text.slice(0,110))}${q.text.length > 110 ? "…" : ""}</td>
         <td style="max-width:300px" class="hint">${esc(q.answer.slice(0,140))}${q.answer.length > 140 ? "…" : ""}</td>
-        <td><span class="stamp ${q.status}">${STAMPS[q.status]}</span></td>
+        <td><span class="stamp ${q.status === "working" ? "generated" : q.status}">${STAMPS[q.status]}</span></td>
         ${showSrc ? `<td class="mono" style="font-size:10.5px">${esc(q.sources.join(", "))}</td>` : ""}
       </tr>`).join("") + "</tbody></table>"
     : '<div class="empty">Nothing to export yet — generate answers in step 2' + ($("exp-approved-only").checked ? ", or untick “approved only”." : ".") + '</div>';
@@ -1664,7 +1665,7 @@ $("theme-toggle").onclick = () => {
 
 /* ---------- workspace directory file (for public_html hosting) ---------- */
 function workspaceSnapshot(){
-  return { app: "countersign", version: 2, exportedAt: new Date().toISOString(),
+  return { app: "countersign", version: 2, appVersion: APP_VERSION, exportedAt: new Date().toISOString(),
            docs: S.docs.map(serializableDoc), questions: S.questions, settings: { ...S.settings, key: "" } };
 }
 $("ws-export").onclick = () => {
@@ -1684,7 +1685,10 @@ async function importWorkspace(obj, sourceLabel){
   if(Array.isArray(obj.questions))
     S.questions = obj.questions.map(q => ({ ...q, type: q.type || classify(q.text), status: q.status === "working" ? "generated" : q.status }));
   if(obj.settings && obj.settings.lengths)
-    S.settings = { ...S.settings, ...obj.settings, key: S.settings.key, provider: S.settings.provider };
+    S.settings = { ...S.settings, ...obj.settings,
+                   key: S.settings.key,
+                   provider: S.settings.provider,
+                   base: S.settings.base || obj.settings.base || "" };
   renderDocs(); renderLedger();
   await persistDocs(); await persistQs();
   toast(`Workspace loaded from ${sourceLabel}: ${S.docs.length} sources, ${S.questions.length} questions`);
@@ -1742,6 +1746,7 @@ $("engine-push").onclick = async () => {
 };
 
 (async function boot(){
+  $("ver").textContent = "v" + APP_VERSION;
   $("store-label").textContent = "storage: " + backend.label;
   $("store-dot").style.background = backend.name === "memory" ? "var(--amber)" : "var(--green)";
   const savedTheme = await store.load("cs-theme");

@@ -86,18 +86,24 @@ function reindex() {
   console.log(`[kb] indexed ${KB.docs.size} docs -> ${KB.chunks.length} chunks`);
 }
 
+const canonicalName = (name) => {
+  const safe = String(name).replace(/[^a-zA-Z0-9 ._-]/g, "_").slice(0, 120) || "doc";
+  return /\.(txt|md|csv|json)$/i.test(safe) ? safe : safe + ".txt";
+};
 function addDoc(name, text, persist) {
   text = String(text).replace(/\u0000/g, "").trim().slice(0, MAX_DOC_CHARS);
   if (!text) return false;
-  KB.docs.set(name, text);
+  // persisted docs are stored under their canonical filename, so use the same
+  // key in memory — /forget and re-ingest then behave identically across restarts
+  const key = persist ? canonicalName(name) : name;
+  KB.docs.set(key, text);
   if (persist) {
     try {
       fs.mkdirSync(KB_DIR, { recursive: true });
-      const safe = name.replace(/[^a-zA-Z0-9 ._-]/g, "_").slice(0, 120);
-      fs.writeFileSync(path.join(KB_DIR, safe.endsWith(".txt") ? safe : safe + ".txt"), text);
+      fs.writeFileSync(path.join(KB_DIR, key), text);
     } catch (e) { console.warn("[kb] persist failed:", e.message); }
   }
-  return true;
+  return key;
 }
 
 function loadKnowledgeBase() {
@@ -113,6 +119,7 @@ function loadKnowledgeBase() {
   try {
     for (const f of fs.readdirSync(KB_DIR)) {
       if (!/\.(txt|md|csv|json)$/i.test(f)) continue;
+      if (/^countersign-data\.json$/i.test(f) || /^README\.txt$/i.test(f)) continue; // workspace exports & folder docs aren't KB sources
       addDoc(f, fs.readFileSync(path.join(KB_DIR, f), "utf8"), false);
     }
   } catch (e) { /* dir absent is fine */ }
@@ -188,17 +195,22 @@ RFP QUESTION: ${question}`;
 }
 
 async function callClaude(body) {
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await r.text();
-  return { status: r.status, text };
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120_000),
+    });
+    const text = await r.text();
+    return { status: r.status, text };
+  } catch (err) {
+    return { status: 504, text: JSON.stringify({ error: { type: "timeout", message: "Upstream timed out or aborted: " + err.message } }) };
+  }
 }
 
 /* ================================================================
@@ -256,15 +268,19 @@ const routes = {
   "/ingest": async (res, body) => {
     if (typeof body.name !== "string" || typeof body.text !== "string")
       return fail(res, 400, "Provide { name: string, text: string } (parse binary formats client-side or via the web app)");
-    if (!addDoc(body.name, body.text, true)) return fail(res, 400, "Document text is empty");
+    const stored = addDoc(body.name, body.text, true);
+    if (!stored) return fail(res, 400, "Document text is empty");
     reindex();
-    send(res, 200, { ok: true, docs: KB.docs.size, chunks: KB.chunks.length });
+    send(res, 200, { ok: true, name: stored, docs: KB.docs.size, chunks: KB.chunks.length });
   },
 
   "/forget": async (res, body) => {
-    if (!KB.docs.delete(body.name)) return fail(res, 404, "No such document");
+    const gone = KB.docs.delete(body.name) || KB.docs.delete(canonicalName(body.name || ""));
+    if (!gone) return fail(res, 404, "No such document");
+    let removedFile = false;
+    try { fs.unlinkSync(path.join(KB_DIR, canonicalName(body.name || ""))); removedFile = true; } catch (e) {}
     reindex();
-    send(res, 200, { ok: true, docs: KB.docs.size });
+    send(res, 200, { ok: true, docs: KB.docs.size, file_removed: removedFile });
   },
 
   "/batch": async (res, body) => {

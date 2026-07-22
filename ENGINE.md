@@ -157,10 +157,16 @@ for (;;) {
 
 ### `POST /ingest` / `POST /forget`
 ```json
-{ "name": "sla-policy.txt", "text": "We guarantee 99.95% uptime..." }
-{ "name": "sla-policy.txt" }
+{ "name": "SLA Policy (v2).pdf", "text": "We guarantee 99.95% uptime..." }
+{ "name": "SLA Policy (v2).pdf" }
 ```
 Plain text only — parse binary formats client-side or via the web app.
+Ingested documents are stored under a sanitized canonical filename (echoed back
+as `name` in the response, e.g. `SLA Policy _v2_.pdf.txt`) so the key survives
+restarts; `/forget` accepts either the original or the stored name and also
+deletes the persisted file from `kb/`. When scanning `kb/` at boot, the engine
+skips `README.txt` and `countersign-data.json` — the latter is only read via
+`DATA_FILE`, never as raw text.
 
 ### `POST /proxy`
 Raw Anthropic `/v1/messages` pass-through (model allowlisted, tokens capped).

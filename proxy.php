@@ -23,8 +23,19 @@ $MAX_TOKENS_CAP = 1024;      // hard ceiling regardless of what the client asks 
 $MAX_BODY_BYTES = 400000;    // ~400 KB — plenty for prompt + retrieved context
 // ------------------------------------------------
 
+$ALLOW_ORIGIN = getenv('ALLOW_ORIGIN') ?: '*';   // tighten to your site's origin in production
+
 header('Content-Type: application/json');
 header('X-Content-Type-Options: nosniff');
+header('Access-Control-Allow-Origin: ' . $ALLOW_ORIGIN);
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {   // CORS preflight
+    header('Access-Control-Allow-Methods: POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, X-Team-Token');
+    header('Access-Control-Max-Age: 86400');
+    http_response_code(204);
+    exit;
+}
 
 function fail(int $code, string $msg): void {
     http_response_code($code);
@@ -40,7 +51,7 @@ if ($TEAM_TOKEN !== '') {
     if (!hash_equals($TEAM_TOKEN, $sent)) fail(401, 'Missing or wrong team token');
 }
 
-$raw = file_get_contents('php://input');
+$raw = file_get_contents('php://input', false, null, 0, $MAX_BODY_BYTES + 1);
 if ($raw === false || strlen($raw) === 0) fail(400, 'Empty body');
 if (strlen($raw) > $MAX_BODY_BYTES)       fail(413, 'Request too large');
 

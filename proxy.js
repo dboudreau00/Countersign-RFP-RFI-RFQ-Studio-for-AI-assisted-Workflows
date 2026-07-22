@@ -88,6 +88,7 @@ const server = http.createServer((req, res) => {
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(120_000),
       });
       send(res, upstream.status, await upstream.text());
     } catch (err) {

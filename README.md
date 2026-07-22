@@ -1,5 +1,9 @@
 # Countersign — RFP Response Studio
 
+<img width="1451" height="1023" alt="Screenshot 2026-07-22 142928" src="https://github.com/user-attachments/assets/07cb55a9-7a7b-431f-8414-5b435c20c591" />
+
+
+
 A single-file web app that automates SaaS RFP responses: parse a documentation
 bucket (up to 500 sources), extract every question from an RFP (PDF, DOCX, XLSX,
 CSV or pasted text), generate grounded answers with per-question citations and

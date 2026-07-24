@@ -56,13 +56,22 @@ const MAX_BATCH      = 100;
    Knowledge base: load, chunk, TF-IDF index
 ================================================================ */
 const STOP = new Set(("the a an and or of to in for with on is are does do your our you we can how what which " +
-  "will be by as at from that this it its any all provide describe please detail").split(" "));
+  "will be by as at from that this it its any all provide describe please detail such other").split(" "));
+/* Light stemmer so query/doc inflections match ("supports"→"support", "policies"→"policy").
+   Must be applied identically at index time (termFreqs) and query time — tf/df keys are stems. */
+const stem = (w) => {
+  if (w.length > 4 && w.endsWith("ies")) return w.slice(0, -3) + "y";
+  if (w.length > 5 && w.endsWith("ing")) return w.slice(0, -3);
+  if (w.length > 4 && (w.endsWith("ed") || w.endsWith("es"))) return w.slice(0, -2);
+  if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) return w.slice(0, -1);
+  return w;
+};
 const tokenize = (s) => [...new Set(String(s).toLowerCase().replace(/[^a-z0-9 ]/g, " ")
   .split(/\s+/).filter(w => w.length > 2 && !STOP.has(w)))];
 const termFreqs = (s) => {
   const tf = Object.create(null);
   for (const w of String(s).toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/)) {
-    if (w.length > 2 && !STOP.has(w)) tf[w] = (tf[w] || 0) + 1;
+    if (w.length > 2 && !STOP.has(w)) { const t = stem(w); tf[t] = (tf[t] || 0) + 1; }
   }
   return tf;
 };
@@ -141,7 +150,8 @@ const expandTerms = (terms) => {
 };
 
 function retrieve(question, budget = CONTEXT_BUDGET) {
-  const qTerms = expandTerms(tokenize(question));
+  // expand aliases on raw tokens (ALIASES is keyed on unstemmed words), then stem to match the index
+  const qTerms = [...new Set(expandTerms(tokenize(question)).map(stem))];
   const scored = [];
   for (const ch of KB.chunks) {
     let score = 0;
@@ -156,7 +166,7 @@ function retrieve(question, budget = CONTEXT_BUDGET) {
     picked.push(s); sources.add(s.ch.doc); used += s.ch.text.length;
     if (picked.length >= 12) break;
   }
-  const inKB = (t) => !!KB.df[t] || (ALIASES[t] || []).some(a => KB.df[a]);
+  const inKB = (t) => !!KB.df[t] || (ALIASES[t] || []).some(a => KB.df[stem(a)]);
   const termsCovered = qTerms.filter(inKB).length;
   const coverage = qTerms.length
     ? Math.min(1, (termsCovered / qTerms.length) * 0.6 + Math.min(picked.length, 6) / 6 * 0.4)
@@ -403,7 +413,15 @@ const server = http.createServer((req, res) => {
   const chunks = [];
   req.on("data", (c) => {
     size += c.length;
-    if (size > MAX_BODY_BYTES) { fail(res, 413, "Request too large"); req.destroy(); return; }
+    if (res.writableEnded) {                     // 413 already sent — drain so the client can read it,
+      if (size > MAX_BODY_BYTES * 8) req.destroy();  // but hard-stop a runaway upload
+      return;
+    }
+    if (size > MAX_BODY_BYTES) {
+      chunks.length = 0;
+      fail(res, 413, "Request too large");       // destroying here would RST before the 413 arrives
+      return;
+    }
     chunks.push(c);
   });
   req.on("end", async () => {

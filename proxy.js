@@ -61,7 +61,15 @@ const server = http.createServer((req, res) => {
   const chunks = [];
   req.on("data", (c) => {
     size += c.length;
-    if (size > MAX_BODY_BYTES) { fail(res, 413, "Request too large"); req.destroy(); return; }
+    if (res.writableEnded) {                     // 413 already sent — drain so the client can read it,
+      if (size > MAX_BODY_BYTES * 8) req.destroy();  // but hard-stop a runaway upload
+      return;
+    }
+    if (size > MAX_BODY_BYTES) {
+      chunks.length = 0;
+      fail(res, 413, "Request too large");       // destroying here would RST before the 413 arrives
+      return;
+    }
     chunks.push(c);
   });
   req.on("end", async () => {

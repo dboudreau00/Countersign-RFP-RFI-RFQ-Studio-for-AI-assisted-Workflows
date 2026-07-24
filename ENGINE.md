@@ -214,8 +214,8 @@ $result = json_decode(curl_exec($ch), true);
   accordingly (~3–4× the raw text size).
 - No request-frequency throttling is built in — add nginx `limit_req` for
   internet-facing deployments; every `/answer` call costs API credits.
-- Retrieval is lexical (TF-IDF + an acronym alias table), which is transparent
-  and dependency-free but not semantic: a question phrased with entirely
-  different vocabulary than your docs can miss. The `missing_terms` field
+- Retrieval is lexical (TF-IDF with light suffix stemming + an acronym alias
+  table), which is transparent and dependency-free but not semantic: a question
+  phrased with entirely different vocabulary than your docs can miss. The `missing_terms` field
   tells you exactly when that happened. Swapping in embeddings later only
   requires replacing the `retrieve()` function — the API contract stays the same.

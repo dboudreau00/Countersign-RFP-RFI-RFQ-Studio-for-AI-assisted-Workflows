@@ -9,7 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/docx/8.5.0/docx.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
 <style>
 :root{
   --paper:#F3F3ED;
@@ -759,7 +759,7 @@ function chunksFor(doc){
   doc._chunks = out;
   return out;
 }
-const STOP = new Set("the a an and or of to in for with on is are does do your our you we can how what which will be by as at from that this it its any all provide describe please detail".split(" "));
+const STOP = new Set("the a an and or of to in for with on is are does do your our you we can how what which will be by as at from that this it its any all provide describe please detail such other".split(" "));
 function keywords(q){
   return [...new Set(q.toLowerCase().replace(/[^a-z0-9 ]/g," ").split(/\s+/)
     .filter(w => w.length > 2 && !STOP.has(w)))];
@@ -1610,7 +1610,14 @@ function showPage(name){
 }
 
 const modal = $("settings-modal");
-$("open-settings").onclick = () => { syncSettingsUI(); modal.classList.add("show"); };
+$("open-settings").onclick = () => {
+  // rehydrate inputs from saved settings — otherwise a reload + Save silently wipes base/model
+  $("set-provider").value = S.settings.provider;
+  $("set-base").value = S.settings.base;
+  $("set-model").value = S.settings.model;
+  $("set-key").value = S.settings.key;   // session-only by design; empty after a reload
+  syncSettingsUI(); modal.classList.add("show");
+};
 $("settings-close").onclick = () => modal.classList.remove("show");
 modal.addEventListener("click", e => { if(e.target === modal) modal.classList.remove("show"); });
 $("set-provider").onchange = syncSettingsUI;

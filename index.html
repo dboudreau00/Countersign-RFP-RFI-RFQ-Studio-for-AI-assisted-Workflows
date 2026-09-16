@@ -549,7 +549,7 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
     </div>
     <div class="row" id="model-row" style="display:none">
       <label class="field">Model</label>
-      <input type="text" id="set-model" placeholder="e.g. gemini-2.0-flash or gpt-4o">
+      <input type="text" id="set-model" placeholder="e.g. gemini-flash-latest or gpt-4o">
     </div>
     <div class="row">
       <label class="field">Answer length targets, per question type</label>
@@ -601,8 +601,18 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
 /* ================================================================
    Countersign — state, persistence, file parsing
 ================================================================ */
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+/* The parsers come from CDNs. If one is blocked (offline, corporate proxy, air-gapped
+   web root) a bare reference here would throw and abort this whole inline script,
+   leaving a page with no event handlers bound and no error on screen. Degrade instead:
+   the app keeps working for every format whose library did load. */
+const MISSING_LIBS = [];
+if (typeof pdfjsLib !== "undefined")
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+else MISSING_LIBS.push("PDF (pdf.js)");
+if (typeof mammoth === "undefined") MISSING_LIBS.push("DOCX reading (mammoth)");
+if (typeof XLSX === "undefined") MISSING_LIBS.push("XLSX/CSV (SheetJS)");
+if (typeof docx === "undefined") MISSING_LIBS.push("DOCX export (docx)");
 
 const APP_VERSION = "1.0.0";
 const S = {
@@ -614,11 +624,23 @@ const S = {
   generating: false
 };
 const QTYPES = { compliance:"Compliance", technical:"Technical", narrative:"Narrative", commercial:"Commercial" };
+/* Anything interpolated into markup must be either escaped or constrained to a known
+   value. Question/document records can arrive from an imported or site-hosted
+   countersign-data.json, so their ids, types and statuses are untrusted input. */
+const safeType = (t) => (QTYPES[t] ? t : "narrative");
+const safeStatus = (s) => (STAMPS && STAMPS[s] ? s : "draft");
+/* Word targets are also interpolated into markup and into prompts, and they can come
+   from an imported workspace file, so they must be numbers within a sane range. */
+const DEFAULT_LENGTHS = { compliance:80, technical:250, narrative:220, commercial:150 };
+function safeLen(type){
+  const n = parseInt(S.settings.lengths && S.settings.lengths[type], 10);
+  return Number.isFinite(n) && n > 0 && n <= 2000 ? n : DEFAULT_LENGTHS[type] || 220;
+}
 function classify(text){
   const t = text.toLowerCase().trim();
-  if(/\b(pric(e|ing)|cost|fees?\b|licen[cs]|subscription|discount|payment|invoice|commercial|quote)/.test(t)) return "commercial";
-  if(/^(do|does|is|are|can|will|has|have|must|shall)\b/.test(t) || /\b(yes\/no|confirm|compl(y|iant|iance)|certif|iso 27001|soc 2|gdpr|hipaa)/.test(t)) return "compliance";
-  if(/\b(architect|api\b|integrat|encrypt|security|sso\b|saml|scim|infrastructur|deploy|hosting|backup|disaster|uptime|sla\b|availab|scal(e|ab)|database|authenticat|audit log|penetration)/.test(t)) return "technical";
+  if(/\b(pric(e|ing)|cost|fees?\b|licen[cs]|subscription|discount|payment|invoice|commercial|quote|seats?\b|commitment|renewal|per user|volume|term length|minimum)/.test(t)) return "commercial";
+  if(/^(do|does|is|are|can|will|has|have|must|shall)\b/.test(t) || /\b(yes\/no|confirm|compl(y|iant|iance)|certif|iso 27001|iso 14001|soc 2|gdpr|hipaa|pci)/.test(t)) return "compliance";
+  if(/\b(architect|api\b|integrat|encrypt|security|sso\b|saml|scim|infrastructur|deploy|hosting|backup|disaster|recovery|rpo\b|rto\b|failover|resilien|uptime|sla\b|availab|scal(e|ab)|database|authenticat|audit log|penetration|rate limit|webhook|tenant)/.test(t)) return "technical";
   return "narrative";
 }
 const MAX_DOCS = 500;           // sources allowed in the bucket
@@ -629,13 +651,27 @@ const SHARD_BUDGET = 4.2e6;     // stay under 5MB per storage key; docs are shar
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const fmtKB = (n) => n > 1e6 ? (n/1e6).toFixed(1)+" MB" : Math.max(1,Math.round(n/1024))+" KB";
+// 0 must read as "0 KB". An empty bucket claiming "1 KB indexed" looks like a bug
+const fmtKB = (n) => n > 1e6 ? (n/1e6).toFixed(1)+" MB" : (n > 0 ? Math.max(1,Math.round(n/1024)) : 0)+" KB";
 const uid = () => Math.random().toString(36).slice(2,9);
 
+/* One toast at a time, so messages queue instead of overwriting each other. Without
+   this a warning raised just before a routine success message is never readable:
+   the success toast replaces it within the same tick. Errors hold the screen longer. */
+let _toastQ = [], _toastBusy = false;
 function toast(msg, err=false){
+  _toastQ.push({ msg, err });
+  if(!_toastBusy) _drainToasts();
+}
+function _drainToasts(){
   const t = $("toast");
-  t.textContent = msg; t.className = err ? "show err" : "show";
-  clearTimeout(t._h); t._h = setTimeout(()=> t.className = "", 3200);
+  const next = _toastQ.shift();
+  if(!next){ _toastBusy = false; t.className = ""; return; }
+  _toastBusy = true;
+  t.textContent = next.msg;
+  t.className = next.err ? "show err" : "show";
+  clearTimeout(t._h);
+  t._h = setTimeout(_drainToasts, next.err ? 5200 : 3200);
 }
 
 /* ---------- persistence: Claude cloud → browser localStorage (self-hosted) → memory ---------- */
@@ -662,10 +698,11 @@ const backend = (() => {
 })();
 const store = {
   async save(key, val){
-    try{ await backend.set(key, JSON.stringify(val)); }
+    try{ await backend.set(key, JSON.stringify(val)); return true; }
     catch(e){
       console.warn("persist failed", e);
       if(backend.name === "local") toast("Browser storage quota hit — use “Export workspace file” to keep your bucket", true);
+      return false;
     }
   },
   async load(key){
@@ -677,7 +714,7 @@ const store = {
 
 /* Docs are split across cs-docs-0..N keys (each < 5MB), described by cs-docs-meta. */
 function serializableDoc(d){ return { id:d.id, name:d.name, type:d.type, size:d.size, chars:d.chars, text:d.text }; }
-let _persistTimer = null, _lastShardCount = 0;
+let _persistTimer = null, _lastShardCount = 0, _docsGen = 0;
 async function persistDocs(){
   clearTimeout(_persistTimer);
   _persistTimer = setTimeout(async () => {
@@ -689,9 +726,31 @@ async function persistDocs(){
       cur.push(serializableDoc(d)); curSize += s.length + 1;
     }
     if(cur.length) shards.push(cur);
-    await store.save("cs-docs-meta", { shards: shards.length, count: S.docs.length, at: Date.now() });
-    for(let i = 0; i < shards.length; i++) await store.save("cs-docs-" + i, shards[i]);
-    for(let i = shards.length; i < _lastShardCount; i++) await store.del("cs-docs-" + i);
+    /* Write the new shards under a fresh generation, then publish them by writing the
+       manifest, then delete the old generation. The manifest write is the single
+       commit point: until it lands the old generation is still whole, so a storage
+       quota failure part-way through can never leave loadDocs reading a half-written
+       bucket. (The original wrote the manifest first, which had exactly that hazard.) */
+    const gen = (_docsGen + 1) % 1000;
+    let written = 0;
+    for(let i = 0; i < shards.length; i++){
+      if(!(await store.save(`cs-docs-g${gen}-${i}`, shards[i]))) break;
+      written++;
+    }
+    if(written < shards.length){
+      for(let i = 0; i < written; i++) await store.del(`cs-docs-g${gen}-${i}`);   // roll back
+      toast("Couldn't save the whole bucket to browser storage. Use “Export workspace file” to keep it", true);
+      return;                       // previous generation and manifest remain intact
+    }
+    if(!(await store.save("cs-docs-meta", { gen, shards: shards.length, count: S.docs.length, at: Date.now() }))){
+      for(let i = 0; i < written; i++) await store.del(`cs-docs-g${gen}-${i}`);
+      return;
+    }
+    for(let i = 0; i < _lastShardCount; i++){
+      await store.del(`cs-docs-g${_docsGen}-${i}`);
+      await store.del("cs-docs-" + i);        // also clears the pre-generation layout
+    }
+    _docsGen = gen;
     _lastShardCount = shards.length;
   }, 400);
 }
@@ -699,10 +758,13 @@ async function loadDocs(){
   const meta = await store.load("cs-docs-meta");
   if(meta && typeof meta.shards === "number"){
     const out = [];
+    // `gen` is absent in manifests written before generation-based sharding
+    const prefix = typeof meta.gen === "number" ? `cs-docs-g${meta.gen}-` : "cs-docs-";
     for(let i = 0; i < meta.shards; i++){
-      const shard = await store.load("cs-docs-" + i);
+      const shard = await store.load(prefix + i);
       if(Array.isArray(shard)) out.push(...shard);
     }
+    _docsGen = typeof meta.gen === "number" ? meta.gen : 0;
     _lastShardCount = meta.shards;
     return out;
   }
@@ -723,7 +785,9 @@ async function parseFile(file){
   const ext = extOf(file.name);
   const buf = await file.arrayBuffer();
   let text = "";
+  const needLib = (ok, what) => { if(!ok) throw new Error(what + " library didn't load (CDN blocked?). Convert this file to .txt and retry"); };
   if(ext === "pdf"){
+    needLib(typeof pdfjsLib !== "undefined", "The PDF");
     const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
     const parts = [];
     for(let p = 1; p <= pdf.numPages; p++){
@@ -733,9 +797,11 @@ async function parseFile(file){
     }
     text = parts.join("\n\n");
   } else if(ext === "docx"){
+    needLib(typeof mammoth !== "undefined", "The DOCX");
     const res = await mammoth.extractRawText({ arrayBuffer: buf });
     text = res.value;
   } else if(ext === "xlsx" || ext === "xls" || ext === "csv"){
+    needLib(typeof XLSX !== "undefined", "The spreadsheet");
     const wb = XLSX.read(buf, { type: "array" });
     text = wb.SheetNames.map(n =>
       "## Sheet: " + n + "\n" + XLSX.utils.sheet_to_csv(wb.Sheets[n])
@@ -759,11 +825,69 @@ function chunksFor(doc){
   doc._chunks = out;
   return out;
 }
-const STOP = new Set("the a an and or of to in for with on is are does do your our you we can how what which will be by as at from that this it its any all provide describe please detail such other".split(" "));
+/* Keep this list in step with engine.js. Every word that survives it can end up in the
+   gap report as "documentation you should add", so instruction verbiage has to go,
+   but words like "level" (service level), "type" (SOC 2 Type II) and "number"
+   (certificate number) carry real topic signal and must stay searchable. */
+const STOP = new Set(("the a an and or of to in for with on is are does do your our you we can how what which " +
+  "will be by as at from that this it its any all provide describe please detail such other " +
+  "state outline confirm explain list specify identify give including included include " +
+  "whether have has had been being was were would should must shall may might able " +
+  "used make makes made take taken hold holds held ensure kindly " +
+  "each every both either also more most much many few less least own same than then " +
+  "there their they them these those when where who whom why while about above below " +
+  "into onto over under between during after before within without across per via " +
+  "if but not only just still even ever never always currently " +
+  "relevant applicable appropriate additional further brief often").split(/\s+/));
+/* Light stemmer, identical to engine.js, so "hosting" in a question matches "hosted"
+   in the docs instead of being reported as a missing topic. */
+function stemWord(w){
+  if(w.length > 4 && w.endsWith("ies")) return w.slice(0,-3) + "y";
+  if(w.length > 5 && w.endsWith("ing")) return w.slice(0,-3);
+  if(w.length > 4 && (w.endsWith("ed") || w.endsWith("es"))) return w.slice(0,-2);
+  if(w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) return w.slice(0,-1);
+  return w;
+}
 function keywords(q){
   return [...new Set(q.toLowerCase().replace(/[^a-z0-9 ]/g," ").split(/\s+/)
     .filter(w => w.length > 2 && !STOP.has(w)))];
 }
+/* Word-boundary matcher: does `kw` appear in `lowText` as a word, allowing a short
+   inflection suffix ("hosting" -> "hosted", "policies" -> "policy")? A raw substring
+   test counts "api" inside "capital" and "rapid", which inflates both retrieval scores
+   and the "documented topics" check behind the gap report.
+
+   Two details that are easy to get wrong:
+   - Match on the common prefix of the word and its stem, not on the stem itself.
+     Stemming "policies" gives "policy", and "policy" is not a prefix of "policies",
+     so a stem-anchored pattern fails to match the very word it came from.
+   - End with "not followed by a letter" rather than \b, so a keyword still matches
+     across a letter/digit junction: "iso" has to match "iso27001" and "aes" "aes256". */
+const _kwRe = new Map();
+function kwRegex(kw){
+  let re = _kwRe.get(kw);
+  if(!re){
+    const stem = stemWord(kw);
+    let i = 0;
+    while(i < kw.length && i < stem.length && kw[i] === stem[i]) i++;
+    let prefix = kw.slice(0, i) || kw;
+    // Matching has to work in both directions: "policies" stems to "policy", so a
+    // question asking about "policy" must still match a document saying "policies".
+    // Drop a trailing "y" so both inflections share the prefix, but only on words long
+    // enough for the -ies rule to apply, or short words like "key" would match "keep".
+    if(prefix.length > 4 && prefix.endsWith("y")) prefix = prefix.slice(0, -1);
+    // The stemmer is suffix-only, so it also truncates words that merely END in "es"
+    // or "ed" ("dates" -> "dat", "notes" -> "not"). As a whole-word key that is
+    // harmless, but as a prefix it would match "data" and "not". Keep the full word
+    // whenever stemming leaves too little to be distinctive.
+    if(prefix.length < 4) prefix = kw;
+    prefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    re = new RegExp("\\b" + prefix + "[a-z]{0,3}(?![a-z])");
+    _kwRe.set(kw, re);
+  }
+  return re;
+}
+const hasKw = (lowText, kw) => kwRegex(kw).test(lowText);
 function retrieve(question, budget = 11000){
   const kws = keywords(question);
   const scored = [];
@@ -771,11 +895,11 @@ function retrieve(question, budget = 11000){
     // cheap doc-level prescreen so a 500-source bucket doesn't scan every chunk
     if(!d._low) d._low = d.text.toLowerCase();
     let hit = false;
-    for(const k of kws){ if(d._low.includes(k)){ hit = true; break; } }
+    for(const k of kws){ if(hasKw(d._low, k)){ hit = true; break; } }
     if(!hit) continue;
     for(const ch of chunksFor(d)){
       let score = 0;
-      for(const k of kws) if(ch.low.includes(k)) score += 1;
+      for(const k of kws) if(hasKw(ch.low, k)) score += 1;
       if(score > 0) scored.push({ score, doc: d.name, text: ch.text });
     }
   }
@@ -786,8 +910,26 @@ function retrieve(question, budget = 11000){
     picked.push(c); srcs.add(c.doc); used += c.text.length;
     if(picked.length >= 12) break;
   }
-  const maxScore = Math.max(1, kws.length);
-  const coverage = scored.length ? Math.min(1, (scored[0].score / maxScore) * 0.6 + Math.min(picked.length,6)/6 * 0.4) : 0;
+  /* Which of the question's keywords does the bucket actually contain? Retrieval depth
+     only modulates that. (Adding a flat 0.4 for "we found 6 chunks" put a floor under
+     every score, so a question the bucket says nothing about still sat above the gap
+     report's 0.4 threshold and never got flagged.)
+
+     Keywords are weighted by rarity, because a plain count hides the gaps that matter:
+     "Do you hold ISO 14001 certification?" shares "iso" and "certification" with an
+     ISO 27001 policy, so it scored half-covered while the one term that decides the
+     answer ("14001") was absent. A keyword in many documents is generic and counts for
+     little; one in none is maximally distinctive and counts for a lot. */
+  let covWeight = 0, totWeight = 0;
+  for(const k of kws){
+    const df = bucketDocFreq(k);
+    const w = 1 / (1 + df);
+    totWeight += w;
+    if(df > 0) covWeight += w;
+  }
+  const termRatio = totWeight ? covWeight / totWeight : 0;
+  const depth = Math.min(picked.length, 6) / 6;
+  const coverage = kws.length ? Math.min(1, termRatio * (0.75 + 0.25 * depth)) : 0;
   return {
     context: picked.map(c => `[Source: ${c.doc}]\n${c.text}`).join("\n\n---\n\n"),
     sources: [...srcs],
@@ -810,8 +952,49 @@ async function engineFetch(path, body){
   if(!r.ok) throw new Error("Engine " + r.status + (data?.error?.message ? " — " + data.error.message : ""));
   return data;
 }
-async function askAI(prompt){
+/* Pull the human-readable message out of a provider error body, whatever shape it uses
+   (Anthropic/proxy: {error:{message}}, Gemini: {error:{message}}, OpenAI: {error:{message}}).
+   Without this every failure reads as a bare status code with no clue what to fix. */
+async function providerError(label, r){
+  let detail = "";
+  try{
+    const text = await r.text();
+    try{
+      const d = JSON.parse(text);
+      detail = d?.error?.message || d?.message || d?.error?.status || "";
+    }catch(e){ detail = text.slice(0, 200); }
+  }catch(e){}
+  detail = String(detail).replace(/\s+/g, " ").trim().slice(0, 240);
+  return new Error(label + " " + r.status + (detail ? ": " + detail : ""));
+}
+const RETRYABLE = (s) => s === 408 || s === 429 || s >= 500;
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+/* One automatic retry on rate-limit/overload, matching what engine.js does for /batch.
+   A single transient 429/503 in a 40-question run otherwise marks that answer failed. */
+const ANSWER_TOKENS  = 1000;
+const EXTRACT_TOKENS = 8000;   // a 40-item JSON array does not fit in 1000
+const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
+const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
+const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+
+async function askAI(prompt, opts){
+  try{
+    return await askAIOnce(prompt, opts);
+  }catch(err){
+    if(!err || !err.retryable) throw err;
+    await sleep(2500);
+    return await askAIOnce(prompt, opts);
+  }
+}
+async function askAIOnce(prompt, opts){
   const p = S.settings;
+  const maxTokens = (opts && opts.maxTokens) || ANSWER_TOKENS;
+  const bail = async (label, r) => {
+    const e = await providerError(label, r);
+    e.retryable = RETRYABLE(r.status);
+    throw e;
+  };
   if(p.provider === "claude" || p.provider === "claude-key"){
     const headers = { "Content-Type": "application/json" };
     if(p.provider === "claude-key"){
@@ -824,12 +1007,12 @@ async function askAI(prompt){
       method: "POST",
       headers,
       body: JSON.stringify({
-        model: p.provider === "claude-key" ? (p.model || "claude-sonnet-4-6") : "claude-sonnet-4-6",
-        max_tokens: 1000,
+        model: p.provider === "claude-key" ? (p.model || DEFAULT_CLAUDE_MODEL) : DEFAULT_CLAUDE_MODEL,
+        max_tokens: maxTokens,
         messages: [{ role: "user", content: prompt }]
       })
     });
-    if(!r.ok) throw new Error("Claude API " + r.status + (r.status === 401 ? " — check your API key" : ""));
+    if(!r.ok) await bail("Claude API" + (r.status === 401 ? " (check your API key)" : ""), r);
     const data = await r.json();
     return (data.content || []).map(b => b.type === "text" ? b.text : "").join("");
   }
@@ -837,15 +1020,10 @@ async function askAI(prompt){
     if(!engineBase()) throw new Error("Set the engine URL in AI settings");
     const r = await fetch(engineBase() + "/proxy", {
       method: "POST", headers: engineHeaders(),
-      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, messages: [{ role: "user", content: prompt }] })
+      body: JSON.stringify({ model: DEFAULT_CLAUDE_MODEL, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] })
     });
-    const text = await r.text();
-    if(!r.ok){
-      let msg = "Engine " + r.status;
-      try{ msg += " — " + JSON.parse(text).error.message; }catch(e){}
-      throw new Error(msg);
-    }
-    const data = JSON.parse(text);
+    if(!r.ok) await bail("Engine", r);
+    const data = await r.json();
     return (data.content || []).map(b => b.type === "text" ? b.text : "").join("");
   }
   if(p.provider === "proxy"){
@@ -856,32 +1034,34 @@ async function askAI(prompt){
       method: "POST",
       headers,
       body: JSON.stringify({
-        model: p.model || "claude-sonnet-4-6",
-        max_tokens: 1000,
+        model: p.model || DEFAULT_CLAUDE_MODEL,
+        max_tokens: maxTokens,
         messages: [{ role: "user", content: prompt }]
       })
     });
-    const text = await r.text();
-    if(!r.ok){
-      let msg = "Proxy " + r.status;
-      try{ msg += " — " + JSON.parse(text).error.message; }catch(e){}
-      if(r.status === 401) msg += " (check the team token)";
-      throw new Error(msg);
-    }
-    const data = JSON.parse(text);
+    if(!r.ok) await bail("Proxy" + (r.status === 401 ? " (check the team token)" : ""), r);
+    const data = await r.json();
     return (data.content || []).map(b => b.type === "text" ? b.text : "").join("");
   }
   if(p.provider === "gemini"){
     if(!p.key) throw new Error("Add your Gemini API key in AI settings");
-    const model = p.model || "gemini-2.0-flash";
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(p.key)}`, {
+    const model = p.model || DEFAULT_GEMINI_MODEL;
+    // key goes in a header, not the query string: URLs end up in history, referrers and proxy logs
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      headers: { "Content-Type": "application/json", "X-goog-api-key": p.key },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        // Current Gemini flash models think before answering, and thinking tokens count
+        // against this budget. An answer-sized cap here can be consumed entirely by
+        // thinking and return empty text, so keep generous headroom; the word target
+        // in the prompt is what actually controls answer length.
+        generationConfig: { maxOutputTokens: Math.max(maxTokens, 8192) }
+      })
     });
-    if(!r.ok) throw new Error("Gemini API " + r.status);
+    if(!r.ok) await bail("Gemini API" + (r.status === 404 ? " (unknown model “" + model + "”, set a current one in AI settings)" : ""), r);
     const data = await r.json();
-    return data.candidates?.[0]?.content?.parts?.map(x => x.text).join("") || "";
+    return data.candidates?.[0]?.content?.parts?.map(x => x.text || "").join("") || "";
   }
   // openai-compatible
   if(!p.key) throw new Error("Add your API key in AI settings");
@@ -890,19 +1070,51 @@ async function askAI(prompt){
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + p.key },
     body: JSON.stringify({
-      model: p.model || "gpt-4o-mini",
-      max_tokens: 1000,
+      model: p.model || DEFAULT_OPENAI_MODEL,
+      max_tokens: maxTokens,
       messages: [{ role: "user", content: prompt }]
     })
   });
-  if(!r.ok) throw new Error("API " + r.status + " (endpoint may block browser calls)");
+  if(!r.ok) await bail("API (endpoint may block browser calls)", r);
   const data = await r.json();
   return data.choices?.[0]?.message?.content || "";
 }
+/* Models wrap JSON in fences and prose, and a response that hits the output-token
+   ceiling arrives as a half-written array. Salvage every complete object rather than
+   throwing away the whole extraction. `truncated` lets the caller warn about it. */
 function parseJSONish(text){
-  const clean = text.replace(/```json|```/g, "").trim();
-  const start = clean.indexOf("["), end = clean.lastIndexOf("]");
-  return JSON.parse(start >= 0 ? clean.slice(start, end + 1) : clean);
+  const clean = String(text).replace(/```json|```/gi, "").trim();
+  const start = clean.indexOf("[");
+  const end = clean.lastIndexOf("]");
+  if(start >= 0 && end > start){
+    try{ return { items: JSON.parse(clean.slice(start, end + 1)), truncated: false }; }catch(e){}
+  }
+  if(start >= 0){
+    // walk the array and keep every object that closed cleanly
+    const items = [];
+    let depth = 0, objStart = -1, inStr = false, esc = false;
+    for(let i = start + 1; i < clean.length; i++){
+      const c = clean[i];
+      if(inStr){
+        if(esc) esc = false;
+        else if(c === "\\") esc = true;
+        else if(c === '"') inStr = false;
+        continue;
+      }
+      if(c === '"') inStr = true;
+      else if(c === "{"){ if(depth === 0) objStart = i; depth++; }
+      else if(c === "}"){
+        depth = Math.max(0, depth - 1);   // a stray closer must not poison the rest
+        if(depth === 0 && objStart >= 0){
+          try{ items.push(JSON.parse(clean.slice(objStart, i + 1))); }catch(e){}
+          objStart = -1;
+        }
+      }
+    }
+    if(items.length) return { items, truncated: true };
+  }
+  const parsed = JSON.parse(clean);   // throws with the model's own text if it wasn't JSON at all
+  return { items: Array.isArray(parsed) ? parsed : [parsed], truncated: false };
 }
 
 /* ================================================================
@@ -970,10 +1182,10 @@ function renderDocs(){
     </tr></thead><tbody>` +
     S.docs.map(d => `<tr>
       <td style="font-weight:500">${esc(d.name)}</td>
-      <td><span class="ftype ${d.type}">${d.type.toUpperCase()}</span></td>
+      <td><span class="ftype ${esc(String(d.type||"").toLowerCase().replace(/[^a-z0-9]/g,""))}">${esc(String(d.type||"").toUpperCase())}</span></td>
       <td class="mono">${fmtKB(d.size)}</td>
       <td class="mono">${d._loading ? "parsing…" : fmtKB(d.chars)}</td>
-      <td><button class="icon-btn" data-del="${d.id}" title="Remove" aria-label="Remove ${esc(d.name)}">✕</button></td>
+      <td><button class="icon-btn" data-del="${esc(d.id)}" title="Remove" aria-label="Remove ${esc(d.name)}">✕</button></td>
     </tr>`).join("") + "</tbody></table>";
   el.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
     S.docs = S.docs.filter(d => d.id !== b.dataset.del);
@@ -994,8 +1206,13 @@ $("rfp-file-input").addEventListener("change", async e => {
   try{
     const ext = extOf(f.name);
     if(["xlsx","xls","csv"].includes(ext)){
+      if(typeof XLSX === "undefined") throw new Error("The spreadsheet library didn't load (CDN blocked?)");
       rfpWorkbook = XLSX.read(await f.arrayBuffer(), { type: "array", cellStyles: true });
       rfpFileName = f.name;
+      // a new workbook invalidates the previous mapping. Keeping it would point the
+      // round-trip export at a sheet/column that belongs to a different file
+      rfpMapping = null;
+      updateRoundtripCard();
       setupSheetMap();
     } else {
       rfpWorkbook = null; rfpMapping = null;
@@ -1013,26 +1230,61 @@ $("rfp-file-input").addEventListener("change", async e => {
 });
 
 /* ---------- spreadsheet-native RFPs: column mapping ---------- */
+/* Always read the sheet from A1, not from the sheet's declared origin.
+   sheet_to_json re-bases rows/columns onto the used range, so on a questionnaire whose
+   data starts at, say, C5 the grid index no longer matches the real cell. The round-trip
+   export writes back by that index, so it would target the wrong cells entirely (and the
+   column dropdowns would show the wrong letters). Anchoring at A1 keeps grid index ===
+   absolute row/column everywhere. */
 function sheetGrid(name){
-  return XLSX.utils.sheet_to_json(rfpWorkbook.Sheets[name], { header: 1, defval: "" });
+  const ws = rfpWorkbook.Sheets[name];
+  if(!ws) return [];
+  const used = XLSX.utils.decode_range(ws["!ref"] || "A1");
+  const fromA1 = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(0, used.e.r), c: Math.max(0, used.e.c) } });
+  return XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", range: fromA1 });
 }
 function setupSheetMap(){
   const sel = $("map-sheet");
   sel.innerHTML = rfpWorkbook.SheetNames.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
-  // pick the sheet with the most rows by default
+  // Pick the sheet with the most POPULATED rows. Counting grid length instead would
+  // just pick whichever sheet has a stray cell furthest down, because the grid is
+  // anchored at A1 and is therefore as tall as the used range regardless of content.
   let best = rfpWorkbook.SheetNames[0], bestRows = -1;
   for(const n of rfpWorkbook.SheetNames){
-    const r = sheetGrid(n).length;
+    const r = sheetGrid(n).reduce((a, row) => a + (rowFill(row) ? 1 : 0), 0);
     if(r > bestRows){ best = n; bestRows = r; }
   }
   sel.value = best;
   populateColumns();
   $("sheet-map").style.display = "block";
 }
+/* Index of the sheet's header row. The grid is anchored at A1, so a questionnaire that
+   starts partway down the sheet has leading blank rows, and often a one-cell title
+   block above the table. The header is the first row carrying at least two populated
+   cells (a questionnaire always has a question column plus a ref or response column);
+   a single-cell row is a title, not a header. The "first row is a header" checkbox is
+   read relative to this, not to row 0. */
+const rowFill = (row) => (row || []).filter(c => String(c || "").trim()).length;
+function headerRowOf(grid){
+  let r = 0;
+  while(r < grid.length && rowFill(grid[r]) < 2) r++;
+  if(r >= grid.length){                       // no two-column row at all
+    for(let i = 0; i < grid.length; i++) if(rowFill(grid[i])) return i;
+    return 0;
+  }
+  // A one-cell row above this one is a title block, not the header, so stop here.
+  // (A questionnaire whose header really is a single cell has no two-column row at
+  // all and is handled by the fallback above; the row count in the preview lets the
+  // user uncheck "First row is a header" if a layout still fools this.)
+  return r;
+}
+const firstDataRow = (grid) => headerRowOf(grid) + ($("map-header").checked ? 1 : 0);
+
 function populateColumns(){
   const grid = sheetGrid($("map-sheet").value);
-  const header = grid[0] || [];
-  const nCols = Math.max(header.length, ...grid.slice(0, 20).map(r => r.length), 1);
+  const hr = headerRowOf(grid);
+  const header = grid[hr] || [];
+  const nCols = Math.max(header.length, ...grid.slice(hr, hr + 20).map(r => r.length), 1);
   const opt = (c) => {
     const letter = XLSX.utils.encode_col(c);
     const label = String(header[c] || "").trim().slice(0, 24);
@@ -1048,7 +1300,7 @@ function populateColumns(){
   if(qGuess < 0){
     let bestLen = 0;
     for(let c = 0; c < nCols; c++){
-      const avg = grid.slice(1, 30).reduce((a, r) => a + String(r[c] || "").length, 0);
+      const avg = grid.slice(hr + 1, hr + 30).reduce((a, r) => a + String(r[c] || "").length, 0);
       if(avg > bestLen){ bestLen = avg; qGuess = c; }
     }
   }
@@ -1063,19 +1315,28 @@ function populateColumns(){
 }
 function previewMap(){
   const grid = sheetGrid($("map-sheet").value);
-  const start = $("map-header").checked ? 1 : 0;
+  const start = firstDataRow(grid);
   const qc = +$("map-q").value;
   const n = grid.slice(start).filter(r => String(r[qc] || "").trim().length > 7).length;
   $("map-preview").textContent = n + " question rows detected";
 }
+/* Keep an already-committed mapping in step with the dropdowns. Without this, changing
+   the response column after importing leaves the round-trip writing to the old one. */
+function syncMappingFromControls(){
+  if(!rfpMapping || rfpMapping.sheet !== $("map-sheet").value) return;
+  rfpMapping.qCol   = +$("map-q").value;
+  rfpMapping.refCol = +$("map-ref").value;
+  rfpMapping.ansCol = +$("map-ans").value;
+  updateRoundtripCard();
+}
 $("map-sheet").onchange = populateColumns;
-["map-q","map-ref","map-ans"].forEach(id => $(id).onchange = previewMap);
+["map-q","map-ref","map-ans"].forEach(id => $(id).onchange = () => { previewMap(); syncMappingFromControls(); });
 $("map-header").onchange = previewMap;
 
 $("map-import").onclick = async () => {
   const sheet = $("map-sheet").value;
   const grid = sheetGrid(sheet);
-  const start = $("map-header").checked ? 1 : 0;
+  const start = firstDataRow(grid);
   const qc = +$("map-q").value, rc = +$("map-ref").value, ac = +$("map-ans").value;
   rfpMapping = { sheet, headerRows: start, qCol: qc, refCol: rc, ansCol: ac, file: rfpFileName };
   let added = 0;
@@ -1084,7 +1345,7 @@ $("map-import").onclick = async () => {
     if(qt.length < 8) continue;
     const ref = rc >= 0 && String(grid[r][rc] || "").trim() ? String(grid[r][rc]).trim() : "Q" + (S.questions.length + 1);
     S.questions.push({ id: uid(), ref, text: qt, type: classify(qt), answer: "", status: "draft",
-                       sources: [], coverage: null, srcSheet: sheet, srcRow: r });
+                       sources: [], coverage: null, srcSheet: sheet, srcRow: r, srcFile: rfpFileName });
     added++;
   }
   renderLedger(); await persistQs();
@@ -1115,11 +1376,11 @@ Respond with ONLY a JSON array, no prose, no markdown fences. Each item: {"ref":
 Extract at most 40 of the most substantive items. Merge trivial duplicates.
 
 RFP TEXT:
-${source.slice(0, 55000)}`);
-    const items = parseJSONish(raw);
+${source.slice(0, 55000)}`, { maxTokens: EXTRACT_TOKENS });
+    const { items, truncated } = parseJSONish(raw);
     let added = 0;
     for(const it of items){
-      if(!it.q) continue;
+      if(!it || !it.q) continue;
       const qtext = String(it.q);
       S.questions.push({ id: uid(), ref: String(it.ref || "Q" + (S.questions.length+1)), text: qtext,
         type: QTYPES[it.type] ? it.type : classify(qtext),
@@ -1128,6 +1389,7 @@ ${source.slice(0, 55000)}`);
     }
     renderLedger(); await persistQs();
     toast(`Extracted ${added} questions into the ledger`);
+    if(truncated) toast(`The model's reply was cut off. ${added} questions recovered, but some may be missing. Check the ledger against the RFP.`, true);
     if(source.length > 55000) toast("Long RFP — first ~55k characters were scanned. Add any missed questions manually.");
   }catch(err){
     toast("Extraction failed: " + err.message, true);
@@ -1145,7 +1407,7 @@ $("add-q-btn").onclick = () => {
 function answerPrompt(q, retrieval){
   const tone = $("tone-select").value;
   const type = q.type || "narrative";
-  const words = S.settings.lengths[type] || 220;
+  const words = safeLen(type);
   const typeRules = {
     compliance: 'This is a COMPLIANCE question: open with a one-word verdict — "Yes.", "No." or "Partially." — then substantiate in a short paragraph. Only answer "Yes" if the reference material supports it.',
     technical: "This is a TECHNICAL question: be concrete about architecture, standards and mechanisms; evaluators are engineers. Avoid marketing language.",
@@ -1169,7 +1431,7 @@ async function generateOne(q){
       const r = await engineFetch("/answer", {
         question: q.text, type: q.type || "narrative",
         tone: $("tone-select").value,
-        max_words: S.settings.lengths[q.type || "narrative"]
+        max_words: safeLen(safeType(q.type))
       });
       q.answer = (r.answer || "").trim();
       q.sources = r.sources || [];
@@ -1186,9 +1448,15 @@ async function generateOne(q){
   const retrieval = retrieve(q.text);
   q.coverage = retrieval.coverage;
   q.sources = retrieval.sources;
+  delete q.missing;                 // local retrieval owns this row's gap data now
   q.status = "working"; renderLedger();
   try{
-    q.answer = (await askAI(answerPrompt(q, retrieval))).trim();
+    const answer = (await askAI(answerPrompt(q, retrieval))).trim();
+    // An empty completion (safety block, filtered response, truncated stream) must not
+    // be stamped "Generated": exportRows() drops answerless rows, so the question
+    // would silently disappear from the submitted response pack.
+    if(!answer) throw new Error("the provider returned an empty response");
+    q.answer = answer;
     q.status = "generated";
   }catch(err){
     q.status = "error";
@@ -1215,8 +1483,14 @@ $("generate-all").onclick = async () => {
         bar.style.width = (i / todo.length * 100) + "%";
         await generateOne(todo[i]);
       }
-      bar.style.width = "100%"; label.textContent = `${todo.length} / ${todo.length} · done`;
-      toast("Draft answers generated — review and stamp approvals");
+      // report what actually happened. A green 100% bar and "generated" after every
+      // question failed is the single most misleading thing this screen could say
+      const failed = todo.filter(q => q.status === "error").length;
+      bar.style.width = "100%";
+      label.textContent = `${todo.length} / ${todo.length} · done` + (failed ? ` · ${failed} failed` : "");
+      if(failed === todo.length) toast(`All ${failed} answers failed. Check ⚙ AI settings (provider, key, model)`, true);
+      else if(failed) toast(`${todo.length - failed} answers generated · ${failed} failed (red stamps). Regenerate those individually`, true);
+      else toast("Draft answers generated — review and stamp approvals");
     }
   }catch(err){
     toast(err.message, true);
@@ -1228,19 +1502,43 @@ $("generate-all").onclick = async () => {
 };
 
 /* Whole-RFP batch via the engine: answers stream back as NDJSON and land in the
-   ledger the moment each completes. */
+   ledger the moment each completes. The engine rejects more than ENGINE_MAX_BATCH
+   questions in one call, so a long RFP is sent as consecutive batches. */
+const ENGINE_MAX_BATCH = 100;
 async function generateAllViaEngine(todo, bar, label){
   todo.forEach(q => { q.status = "working"; });
   renderLedger();
-  label.textContent = `0 / ${todo.length} · engine batch`;
+  let done = 0, failed = 0;
+  for(let i = 0; i < todo.length; i += ENGINE_MAX_BATCH){
+    const slice = todo.slice(i, i + ENGINE_MAX_BATCH);
+    const r = await runEngineBatch(slice, bar, label, done, todo.length);
+    done += r.done; failed += r.failed;
+  }
+  renderLedger(); await persistQs();
+  // anything the stream never reported on is a failure, not a silent success
+  const stuck = todo.filter(q => q.status === "working");
+  let stuckFailed = 0;
+  stuck.forEach(q => {
+    if(q.answer){ q.status = "generated"; }
+    else { q.status = "error"; stuckFailed++; }
+  });
+  if(stuck.length){ failed += stuckFailed; renderLedger(); await persistQs(); }
+  label.textContent = `${done} / ${todo.length} · done` + (failed ? ` · ${failed} failed` : "");
+  if(failed === todo.length) toast(`All ${failed} answers failed. Check the engine and its API key`, true);
+  else if(failed) toast(`Batch finished: ${failed} failed (red stamps). Regenerate those individually`, true);
+  else toast("Batch complete — review and stamp approvals");
+}
+
+async function runEngineBatch(todo, bar, label, offset, grandTotal){
+  label.textContent = `${offset} / ${grandTotal} · engine batch`;
   const canStream = typeof ReadableStream !== "undefined";
   const body = {
     stream: canStream,
     tone: $("tone-select").value,
     questions: todo.map(q => ({
       id: q.id, ref: q.ref, question: q.text,
-      type: q.type || "narrative",
-      max_words: S.settings.lengths[q.type || "narrative"]
+      type: safeType(q.type),
+      max_words: safeLen(safeType(q.type))
     }))
   };
   const res = await fetch(engineBase() + "/batch", { method: "POST", headers: engineHeaders(), body: JSON.stringify(body) });
@@ -1255,22 +1553,25 @@ async function generateAllViaEngine(todo, bar, label){
     if(ev.kind !== "answer" && ev.kind !== "error") return;
     const q = S.questions.find(x => x.id === ev.id) || todo[ev.index];
     if(q){
-      if(ev.kind === "answer"){
-        q.answer = (ev.answer || "").trim();
+      const answer = ev.kind === "answer" ? (ev.answer || "").trim() : "";
+      if(answer){
+        q.answer = answer;
         q.sources = ev.sources || [];
         q.coverage = ev.coverage ?? q.coverage;
         q.missing = ev.missing_terms || [];
         q.status = "generated";
       } else {
+        // an "answer" event carrying no text is a failure, not a generated answer
         q.status = "error"; failCount++;
       }
     }
     doneCount++;
-    bar.style.width = (doneCount / todo.length * 100) + "%";
-    label.textContent = `${doneCount} / ${todo.length}` + (ev.ref ? ` · ${ev.ref}` : "");
+    bar.style.width = ((offset + doneCount) / grandTotal * 100) + "%";
+    label.textContent = `${offset + doneCount} / ${grandTotal}` + (ev.ref ? ` · ${ev.ref}` : "");
     const now = Date.now();
     if(now - lastRender > 350){ lastRender = now; renderLedger(); }
   };
+  let sawDone = false;
   if(canStream && res.body && res.body.getReader){
     const reader = res.body.getReader(), dec = new TextDecoder();
     let buf = "";
@@ -1281,16 +1582,31 @@ async function generateAllViaEngine(todo, bar, label){
       let nl;
       while((nl = buf.indexOf("\n")) >= 0){
         const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
-        if(line.trim()){ try{ handle(JSON.parse(line)); }catch(e){} }
+        if(!line.trim()) continue;
+        try{
+          const ev = JSON.parse(line);
+          if(ev.kind === "done") sawDone = true;
+          handle(ev);
+        }catch(e){}
       }
     }
+    // flush a final line that arrived without a trailing newline
+    if(buf.trim()){
+      try{
+        const ev = JSON.parse(buf);
+        if(ev.kind === "done") sawDone = true;
+        handle(ev);
+      }catch(e){}
+    }
+    // no terminal "done" event means the stream was cut short, so the caller turns any
+    // question still marked "working" into a failure rather than reporting success
+    if(!sawDone) toast("The engine stream ended early, so some answers may be missing", true);
   } else {
     const data = await res.json();
     (data.results || []).forEach(handle);
   }
   renderLedger(); await persistQs();
-  label.textContent = `${doneCount} / ${todo.length} · done` + (failCount ? ` · ${failCount} failed` : "");
-  toast(failCount ? `Batch finished — ${failCount} failed (red stamps); regenerate those individually` : "Batch complete — review and stamp approvals");
+  return { done: doneCount, failed: failCount };
 }
 
 function covMeter(c){
@@ -1303,37 +1619,54 @@ const STAMPS = { draft:"Draft", working:"Working…", generated:"Generated", app
 
 function renderLedger(openIds){
   openIds = openIds || [...document.querySelectorAll(".q-row.open")].map(r => r.dataset.id);
+  // A background generation can re-render while the user is mid-sentence in an answer.
+  // The textarea only commits on change/blur, so rebuilding innerHTML would throw the
+  // edit away: commit whatever is in the focused box first, and restore the caret after.
+  const active = document.activeElement;
+  let restore = null;
+  if(active && active.dataset && active.dataset.ans){
+    const q = S.questions.find(x => x.id === active.dataset.ans);
+    if(q && q.answer !== active.value){
+      q.answer = active.value;
+      if(q.status === "draft" && active.value) q.status = "generated";
+      persistQs();
+    }
+    restore = { id: active.dataset.ans, start: active.selectionStart, end: active.selectionEnd };
+  }
   const el = $("ledger");
   $("q-count").textContent = S.questions.length + (S.questions.length === 1 ? " question" : " questions");
   if(!S.questions.length){
     el.innerHTML = '<div class="empty">No questions yet. Load an RFP above and extract, or add questions manually.</div>';
     renderExport(); return;
   }
-  el.innerHTML = S.questions.map(q => `
-    <div class="q-row ${openIds.includes(q.id) ? "open" : ""}" data-id="${q.id}">
-      <div class="q-head" data-toggle="${q.id}">
+  el.innerHTML = S.questions.map(q => {
+    const id = esc(q.id), type = safeType(q.type), status = safeStatus(q.status);
+    const srcs = Array.isArray(q.sources) ? q.sources : [];
+    return `
+    <div class="q-row ${openIds.includes(q.id) ? "open" : ""}" data-id="${id}">
+      <div class="q-head" data-toggle="${id}">
         <span class="clause">${esc(q.ref)}</span>
         <div class="q-text">${esc(q.text)}
-          <div style="margin-top:5px"><span class="qtype ${q.type || "narrative"}">${QTYPES[q.type] || "Narrative"} · ~${S.settings.lengths[q.type || "narrative"]}w</span></div>
+          <div style="margin-top:5px"><span class="qtype ${type}">${QTYPES[type]} · ~${safeLen(type)}w</span></div>
         </div>
         <div class="q-meta">
-          <span class="stamp ${q.status === "working" ? "generated" : q.status}">${STAMPS[q.status] || q.status}</span>
+          <span class="stamp ${status === "working" ? "generated" : status}">${STAMPS[status]}</span>
           ${covMeter(q.coverage)}
         </div>
       </div>
       <div class="q-body">
-        <textarea data-ans="${q.id}" placeholder="No answer yet — generate or write one.">${esc(q.answer)}</textarea>
+        <textarea data-ans="${id}" placeholder="No answer yet — generate or write one.">${esc(q.answer)}</textarea>
         <div class="q-actions">
-          <button class="btn small" data-gen="${q.id}">${q.answer ? "Regenerate" : "Generate answer"}</button>
-          <select data-type="${q.id}" style="width:auto;padding:5px 8px;font-size:12px">
-            ${Object.entries(QTYPES).map(([k,v]) => `<option value="${k}" ${ (q.type||"narrative")===k ? "selected" : ""}>${v} (~${S.settings.lengths[k]}w)</option>`).join("")}
+          <button class="btn small" data-gen="${id}">${q.answer ? "Regenerate" : "Generate answer"}</button>
+          <select data-type="${id}" style="width:auto;padding:5px 8px;font-size:12px">
+            ${Object.entries(QTYPES).map(([k,v]) => `<option value="${k}" ${ type===k ? "selected" : ""}>${v} (~${safeLen(k)}w)</option>`).join("")}
           </select>
-          <button class="btn small green" data-approve="${q.id}">${q.status === "approved" ? "Unapprove" : "Stamp approved"}</button>
-          <button class="btn small ghost" data-delq="${q.id}">Delete</button>
-          <span class="src-note">${q.sources.length ? "Grounded in: " + esc(q.sources.slice(0,3).join(", ")) + (q.sources.length > 3 ? " +" + (q.sources.length-3) : "") : "No sources matched yet"}</span>
+          <button class="btn small green" data-approve="${id}">${status === "approved" ? "Unapprove" : "Stamp approved"}</button>
+          <button class="btn small ghost" data-delq="${id}">Delete</button>
+          <span class="src-note">${srcs.length ? "Grounded in: " + esc(srcs.slice(0,3).join(", ")) + (srcs.length > 3 ? " +" + (srcs.length-3) : "") : "No sources matched yet"}</span>
         </div>
       </div>
-    </div>`).join("");
+    </div>`; }).join("");
 
   el.querySelectorAll("[data-toggle]").forEach(h => h.onclick = () =>
     h.closest(".q-row").classList.toggle("open"));
@@ -1365,10 +1698,18 @@ function renderLedger(openIds){
     sel.onclick = e => e.stopPropagation();
     sel.onchange = e => {
       e.stopPropagation();
-      S.questions.find(x => x.id === sel.dataset.type).type = sel.value;
+      S.questions.find(x => x.id === sel.dataset.type).type = safeType(sel.value);
       renderLedger(); persistQs();
     };
   });
+  // put the caret back where the user left it
+  if(restore){
+    const t = el.querySelector(`[data-ans="${CSS.escape(restore.id)}"]`);
+    if(t){
+      t.focus();
+      try{ t.setSelectionRange(restore.start, restore.end); }catch(e){}
+    }
+  }
   renderExport(); renderGaps();
 }
 
@@ -1376,18 +1717,22 @@ function renderLedger(openIds){
    Coverage gap report (local analysis, no AI calls)
 ================================================================ */
 let _kwMemo = new Map(), _kwSig = "";
-function bucketHasKw(k){
-  const sig = S.docs.length + ":" + S.docs.reduce((a,d) => a + d.chars, 0);
+/* How many bucket documents contain this keyword? 0 means the bucket says nothing
+   about it. Memoised per bucket state. */
+function bucketDocFreq(k){
+  // include document identity in the signature, so a same-size swap still busts it
+  const sig = S.docs.length + ":" + S.docs.reduce((a,d) => a + d.chars, 0) + ":" + S.docs.map(d => d.id).join(",");
   if(sig !== _kwSig){ _kwMemo = new Map(); _kwSig = sig; }
   if(_kwMemo.has(k)) return _kwMemo.get(k);
-  let found = false;
+  let n = 0;
   for(const d of S.docs){
     if(!d._low) d._low = d.text.toLowerCase();
-    if(d._low.includes(k)){ found = true; break; }
+    if(hasKw(d._low, k)) n++;
   }
-  _kwMemo.set(k, found);
-  return found;
+  _kwMemo.set(k, n);
+  return n;
 }
+const bucketHasKw = (k) => bucketDocFreq(k) > 0;
 function missingKeywords(q){
   return keywords(q.text).filter(k => !bucketHasKw(k)).slice(0, 6);
 }
@@ -1417,10 +1762,18 @@ $("run-gaps").onclick = async () => {
     return;
   }
   if(!S.docs.length) return toast("The bucket is empty — add documentation in step 1 first", true);
+  const inBucket = new Set(S.docs.map(d => d.name));
   for(const q of S.questions){
     const r = retrieve(q.text);
     q.coverage = r.coverage;
-    if(!q.sources.length) q.sources = r.sources;
+    // An answered row's sources describe what actually grounded THAT answer, so don't
+    // replace them with a fresh retrieval — just drop citations whose document has
+    // since left the bucket, which would otherwise be exported as a phantom source.
+    if(!q.answer) q.sources = r.sources;
+    else q.sources = (q.sources || []).filter(s => inBucket.has(s));
+    // drop engine-supplied missing terms: this run scored against the local bucket,
+    // so missFor() must not keep preferring a stale server-side list
+    delete q.missing;
   }
   renderLedger(); await persistQs();
   toast("Gap analysis complete");
@@ -1490,14 +1843,14 @@ function renderExport(){
   const showSrc = $("exp-sources").checked;
   $("exp-preview").innerHTML = rows.length
     ? `<table><thead><tr><th>Ref</th><th>Type</th><th>Question</th><th>Response</th><th>Status</th>${showSrc ? "<th>Sources</th>" : ""}</tr></thead><tbody>` +
-      rows.map(q => `<tr>
+      rows.map(q => { const type = safeType(q.type), status = safeStatus(q.status); return `<tr>
         <td class="mono">${esc(q.ref)}</td>
-        <td><span class="qtype ${q.type || "narrative"}">${QTYPES[q.type] || "Narrative"}</span></td>
+        <td><span class="qtype ${type}">${QTYPES[type]}</span></td>
         <td style="max-width:200px">${esc(q.text.slice(0,110))}${q.text.length > 110 ? "…" : ""}</td>
         <td style="max-width:300px" class="hint">${esc(q.answer.slice(0,140))}${q.answer.length > 140 ? "…" : ""}</td>
-        <td><span class="stamp ${q.status === "working" ? "generated" : q.status}">${STAMPS[q.status]}</span></td>
-        ${showSrc ? `<td class="mono" style="font-size:10.5px">${esc(q.sources.join(", "))}</td>` : ""}
-      </tr>`).join("") + "</tbody></table>"
+        <td><span class="stamp ${status === "working" ? "generated" : status}">${STAMPS[status]}</span></td>
+        ${showSrc ? `<td class="mono" style="font-size:10.5px">${esc((q.sources||[]).join(", "))}</td>` : ""}
+      </tr>`; }).join("") + "</tbody></table>"
     : '<div class="empty">Nothing to export yet — generate answers in step 2' + ($("exp-approved-only").checked ? ", or untick “approved only”." : ".") + '</div>';
 }
 
@@ -1506,6 +1859,49 @@ function downloadBlob(blob, name){
   a.href = URL.createObjectURL(blob); a.download = name;
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
+
+/* OOXML forbids most C0 control characters; a stray one (models occasionally emit
+   vertical tabs or form feeds) makes Word refuse to open the file with a repair prompt. */
+function xmlSafe(s){
+  // OOXML forbids the C0 control characters except tab (9), LF (10) and CR (13).
+  // A stray one (models occasionally emit vertical tabs or form feeds) makes Word
+  // refuse to open the document and offer to repair it instead.
+  const str = String(s == null ? "" : s);
+  let out = "";
+  for(let i = 0; i < str.length; i++){
+    const c = str.charCodeAt(i);
+    out += (c < 32 && c !== 9 && c !== 10 && c !== 13) ? " " : str[i];
+  }
+  return out;
+}
+
+/* Models keep emitting Markdown emphasis even when told not to, and raw "**text**"
+   in a submitted Word document looks unfinished. Split a paragraph into docx TextRuns
+   so bold/italic render properly, and drop leading heading/bullet markers. */
+function mdRuns(D, text){
+  // strip line-anchored markers while the line breaks are still present, THEN flatten
+  const cleaned = xmlSafe(text)
+    .replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, "")
+    .replace(/^[ \t]{0,3}[-*+][ \t]+/gm, "• ")
+    .replace(/\n/g, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+  const runs = [];
+  // Asterisks only. Underscores are Markdown emphasis too, but RFP answers are full of
+  // identifiers like max_tokens_limit, and treating those as italics silently deletes
+  // the underscores from the delivered document.
+  const re = /(\*\*)(?=\S)([\s\S]*?\S)\1|(\*)(?=\S)([\s\S]*?\S)\3/g;
+  let last = 0, m;
+  while((m = re.exec(cleaned)) !== null){
+    if(m.index > last) runs.push(new D.TextRun({ text: cleaned.slice(last, m.index) }));
+    if(m[2] !== undefined) runs.push(new D.TextRun({ text: m[2], bold: true }));
+    else runs.push(new D.TextRun({ text: m[4], italics: true }));
+    last = re.lastIndex;
+  }
+  if(last < cleaned.length) runs.push(new D.TextRun({ text: cleaned.slice(last) }));
+  return runs.length ? runs : [new D.TextRun({ text: cleaned })];
+}
+
 $("download-btn").onclick = async () => {
   const rows = exportRows();
   if(!rows.length) return toast("Nothing to export yet", true);
@@ -1549,32 +1945,45 @@ $("download-btn").onclick = async () => {
     if(!(rfpWorkbook && rfpMapping && rfpMapping.ansCol >= 0))
       return toast("Round-trip needs a mapped spreadsheet RFP with a response column", true);
     const ws = rfpWorkbook.Sheets[rfpMapping.sheet];
+    if(!ws) return toast(`Sheet “${rfpMapping.sheet}” isn't in the loaded workbook. Re-import the column mapping`, true);
     const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
-    let written = 0;
+    let written = 0, skipped = 0;
     for(const r of rows){
-      if(r.srcSheet !== rfpMapping.sheet || typeof r.srcRow !== "number") continue;
+      // only write back rows that came from THIS workbook and sheet
+      if(r.srcSheet !== rfpMapping.sheet || typeof r.srcRow !== "number"){ skipped++; continue; }
+      if(r.srcFile && rfpMapping.file && r.srcFile !== rfpMapping.file){ skipped++; continue; }
       ws[XLSX.utils.encode_cell({ r: r.srcRow, c: rfpMapping.ansCol })] = { t: "s", v: r.answer };
+      // grow the used range so the new cells are actually serialised. A cell written
+      // outside !ref is silently dropped by the writer
+      range.s.r = Math.min(range.s.r, r.srcRow);
+      range.s.c = Math.min(range.s.c, rfpMapping.ansCol);
       range.e.c = Math.max(range.e.c, rfpMapping.ansCol);
       range.e.r = Math.max(range.e.r, r.srcRow);
       written++;
     }
+    // check BEFORE writing: downloading an unchanged workbook alongside an error toast
+    // is worse than not downloading at all
+    if(!written) return toast("No answers matched this workbook's mapped sheet, so nothing was written back", true);
     ws["!ref"] = XLSX.utils.encode_range(range);
     XLSX.writeFile(rfpWorkbook, safe + "_completed.xlsx");
-    return toast(`Wrote ${written} answers into ${rfpMapping.file} → downloaded as ${safe}_completed.xlsx`);
+    return toast(`Wrote ${written} answers into ${rfpMapping.file}${skipped ? ` (${skipped} from elsewhere skipped)` : ""} → downloaded as ${safe}_completed.xlsx`);
 
   } else { // docx
+    if(typeof docx === "undefined") return toast("The DOCX library didn't load (CDN blocked?). Export as XLSX or CSV instead", true);
     const D = docx;
     const children = [
-      new D.Paragraph({ text: title, heading: D.HeadingLevel.TITLE }),
-      ...(company ? [new D.Paragraph({ children: [new D.TextRun({ text: company, bold: true })] })] : []),
+      new D.Paragraph({ text: xmlSafe(title), heading: D.HeadingLevel.TITLE }),
+      ...(company ? [new D.Paragraph({ children: [new D.TextRun({ text: xmlSafe(company), bold: true })] })] : []),
       new D.Paragraph({ text: "Generated with Countersign · " + new Date().toLocaleDateString(), spacing: { after: 400 } })
     ];
     for(const r of rows){
-      children.push(new D.Paragraph({ text: r.ref + " — " + r.text, heading: D.HeadingLevel.HEADING_2, spacing: { before: 300, after: 120 } }));
+      children.push(new D.Paragraph({ text: xmlSafe(r.ref + " — " + r.text), heading: D.HeadingLevel.HEADING_2, spacing: { before: 300, after: 120 } }));
+      // pass the paragraph with its line breaks intact: mdRuns strips line-anchored
+      // Markdown markers before flattening them to spaces
       r.answer.split(/\n{2,}/).forEach(par =>
-        children.push(new D.Paragraph({ text: par.replace(/\n/g," "), spacing: { after: 120 } })));
+        children.push(new D.Paragraph({ children: mdRuns(D, par), spacing: { after: 120 } })));
       if(showSrc && r.sources.length)
-        children.push(new D.Paragraph({ children: [new D.TextRun({ text: "Sources: " + r.sources.join(", "), italics: true, size: 18, color: "5B6157" })], spacing: { after: 200 } }));
+        children.push(new D.Paragraph({ children: [new D.TextRun({ text: xmlSafe("Sources: " + r.sources.join(", ")), italics: true, size: 18, color: "5B6157" })], spacing: { after: 200 } }));
     }
     if(withGaps && gaps.length){
       children.push(new D.Paragraph({ text: "Appendix — Coverage gap report (internal)", heading: D.HeadingLevel.HEADING_1, pageBreakBefore: true, spacing: { after: 200 } }));
@@ -1582,10 +1991,10 @@ $("download-btn").onclick = async () => {
       for(const g of gaps){
         children.push(new D.Paragraph({ children: [
           new D.TextRun({ text: g.ref + " (" + Math.round(g.coverage * 100) + "% coverage): ", bold: true }),
-          new D.TextRun({ text: g.text })
+          new D.TextRun({ text: xmlSafe(g.text) })
         ], spacing: { after: 60 } }));
         const miss = missFor(g);
-        if(miss.length) children.push(new D.Paragraph({ children: [new D.TextRun({ text: "No source material on: " + miss.join(", "), italics: true, color: "AE3B2A", size: 18 })], spacing: { after: 160 } }));
+        if(miss.length) children.push(new D.Paragraph({ children: [new D.TextRun({ text: xmlSafe("No source material on: " + miss.join(", ")), italics: true, color: "AE3B2A", size: 18 })], spacing: { after: 160 } }));
       }
     }
     const doc = new D.Document({ sections: [{ children }] });
@@ -1616,6 +2025,12 @@ $("open-settings").onclick = () => {
   $("set-base").value = S.settings.base;
   $("set-model").value = S.settings.model;
   $("set-key").value = S.settings.key;   // session-only by design; empty after a reload
+  // the length selects must be rehydrated too, or a workspace import followed by
+  // Save silently reverts the imported targets to whatever the dropdowns still show
+  for(const t of Object.keys(QTYPES)){
+    const sel = $("len-" + t);
+    if([...sel.options].some(o => o.value == S.settings.lengths[t])) sel.value = S.settings.lengths[t];
+  }
   syncSettingsUI(); modal.classList.add("show");
 };
 $("settings-close").onclick = () => modal.classList.remove("show");
@@ -1632,9 +2047,9 @@ function syncSettingsUI(){
   $("set-base").placeholder = p === "engine" ? "http://yourhost:8790"
     : p === "proxy" ? "proxy.php  ·  or  https://yourhost:8787/proxy" : "https://api.openai.com/v1";
   $("key-warning").style.display = (p === "claude" || tokenStyle) ? "none" : "block";
-  $("set-model").placeholder = p === "claude-key" ? "claude-sonnet-4-6 (default)"
-    : p === "proxy" ? "claude-sonnet-4-6 (proxy enforces its allowlist)"
-    : p === "gemini" ? "e.g. gemini-2.0-flash" : "e.g. gpt-4o";
+  $("set-model").placeholder = p === "claude-key" ? DEFAULT_CLAUDE_MODEL + " (default)"
+    : p === "proxy" ? DEFAULT_CLAUDE_MODEL + " (proxy enforces its allowlist)"
+    : p === "gemini" ? DEFAULT_GEMINI_MODEL + " (default)" : "e.g. gpt-4o";
 }
 const PROV_NAMES = { claude: "Claude · built-in", "claude-key": "Claude · your key", gemini: "Gemini · your key", openai: "OpenAI-compat · your key", proxy: "Claude · team proxy", engine: "Claude · engine" };
 function syncProviderChip(){
@@ -1648,8 +2063,10 @@ $("settings-save").onclick = () => {
   S.settings.key = $("set-key").value.trim();
   S.settings.base = $("set-base").value.trim();
   S.settings.model = $("set-model").value.trim();
-  for(const t of Object.keys(QTYPES))
-    S.settings.lengths[t] = parseInt($("len-" + t).value, 10);
+  for(const t of Object.keys(QTYPES)){
+    const n = parseInt($("len-" + t).value, 10);
+    if(Number.isFinite(n)) S.settings.lengths[t] = n;
+  }
   syncProviderChip();
   modal.classList.remove("show");
   // persist everything except the API key
@@ -1686,19 +2103,57 @@ $("ws-import-input").onchange = async e => {
   catch(err){ toast("Invalid workspace file: " + err.message, true); }
   e.target.value = "";
 };
-async function importWorkspace(obj, sourceLabel){
+/* Normalise a question record from an untrusted workspace file: every field the UI
+   later dereferences must exist and be the right type. */
+function normaliseQuestion(q){
+  const text = String((q && q.text) || "");
+  return {
+    ...q,
+    id: (q && typeof q.id === "string" && q.id) ? q.id : uid(),
+    ref: String((q && q.ref) || "Q"),
+    text,
+    type: QTYPES[q && q.type] ? q.type : classify(text),
+    answer: typeof (q && q.answer) === "string" ? q.answer : "",
+    status: safeStatus(q && q.status === "working" ? "generated" : (q && q.status)),
+    sources: Array.isArray(q && q.sources) ? q.sources.map(String) : [],
+    coverage: typeof (q && q.coverage) === "number" ? q.coverage : null,
+    missing: Array.isArray(q && q.missing) ? q.missing.map(String) : undefined,
+  };
+}
+
+async function importWorkspace(obj, sourceLabel, opts){
   if(!obj || obj.app !== "countersign" || !Array.isArray(obj.docs)) throw new Error("not a Countersign workspace");
-  S.docs = obj.docs.slice(0, MAX_DOCS).map(d => ({ ...d }));
-  if(Array.isArray(obj.questions))
-    S.questions = obj.questions.map(q => ({ ...q, type: q.type || classify(q.text), status: q.status === "working" ? "generated" : q.status }));
-  if(obj.settings && obj.settings.lengths)
+  // Importing replaces the whole workspace. Confirm before throwing away real work:
+  // the bucket and ledger are persisted immediately afterwards, so this is not undoable.
+  const hasWork = S.docs.length || S.questions.length;
+  if(hasWork && !(opts && opts.silent)){
+    const ok = confirm(
+      `Replace your current workspace?\n\n` +
+      `Now:  ${S.docs.length} sources, ${S.questions.length} questions\n` +
+      `File: ${obj.docs.length} sources, ${Array.isArray(obj.questions) ? obj.questions.length : 0} questions\n\n` +
+      `This overwrites your bucket and ledger and cannot be undone. Export your workspace first if you want to keep it.`);
+    if(!ok){ toast("Import cancelled, your workspace is unchanged"); return false; }
+  }
+  S.docs = obj.docs.slice(0, MAX_DOCS)
+    .filter(d => d && typeof d.text === "string")
+    .map(d => ({ ...d, id: (typeof d.id === "string" && d.id) ? d.id : uid(),
+                 name: String(d.name || "document"), type: String(d.type || "txt"),
+                 size: +d.size || 0, chars: d.text.length }));
+  if(Array.isArray(obj.questions)) S.questions = obj.questions.map(normaliseQuestion);
+  if(obj.settings && obj.settings.lengths){
     S.settings = { ...S.settings, ...obj.settings,
                    key: S.settings.key,
                    provider: S.settings.provider,
+                   // the file's model belongs to the file's provider. Adopting it while
+                   // keeping the local provider produces an impossible pairing
+                   // (e.g. provider "gemini" with model "claude-sonnet-4-6")
+                   model: (obj.settings.provider === S.settings.provider) ? (obj.settings.model || "") : S.settings.model,
                    base: S.settings.base || obj.settings.base || "" };
+  }
   renderDocs(); renderLedger();
   await persistDocs(); await persistQs();
   toast(`Workspace loaded from ${sourceLabel}: ${S.docs.length} sources, ${S.questions.length} questions`);
+  return true;
 }
 async function fetchDirectoryFile(manual){
   try{
@@ -1706,8 +2161,9 @@ async function fetchDirectoryFile(manual){
     if(!r.ok) throw new Error("HTTP " + r.status);
     const ct = r.headers.get("content-type") || "";
     const obj = ct.includes("json") ? await r.json() : JSON.parse(await r.text());
-    await importWorkspace(obj, "site directory");
-    $("ws-note").textContent = "countersign-data.json auto-loaded from this directory";
+    // only claim the file was loaded if the import actually went through
+    if(await importWorkspace(obj, "site directory"))
+      $("ws-note").textContent = "countersign-data.json loaded from this directory";
   }catch(err){
     if(manual) toast("No countersign-data.json found next to this page (" + err.message + ")", true);
   }
@@ -1760,7 +2216,7 @@ $("engine-push").onclick = async () => {
   if(savedTheme === "dark" || savedTheme === "light"){ theme = savedTheme; applyTheme(); }
   S.docs = await loadDocs();
   const qs = await store.load("cs-questions");
-  if(Array.isArray(qs)) S.questions = qs.map(q => ({ ...q, type: q.type || classify(q.text), status: q.status === "working" ? "generated" : q.status }));
+  if(Array.isArray(qs)) S.questions = qs.map(normaliseQuestion);
   const st = await store.load("cs-settings");
   if(st && st.lengths){
     S.settings = { ...S.settings, ...st, key: "" };
@@ -1774,6 +2230,8 @@ $("engine-push").onclick = async () => {
   if(S.settings.provider === "engine" && S.settings.base)
     $("engine-status").textContent = "configured: " + S.settings.base + " — click “Check engine”";
   renderDocs(); renderLedger();
+  if(MISSING_LIBS.length)
+    toast("Some libraries didn't load (" + MISSING_LIBS.join(", ") + "), so those formats are unavailable", true);
   if(S.docs.length || S.questions.length) toast("Restored your previous session");
   else await fetchDirectoryFile(false);   // fresh visitor on self-hosted copy → try the directory file
 })();

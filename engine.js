@@ -51,12 +51,26 @@ const MAX_BODY_BYTES = 1_500_000; // /ingest can carry a whole document
 const MAX_DOC_CHARS  = 220000;
 const CONCURRENCY    = Math.min(Math.max(parseInt(process.env.CONCURRENCY || "2", 10) || 2, 1), 4);
 const MAX_BATCH      = 100;
+const PROXY_MAX_TOKENS = 8192;  // ceiling for the raw /proxy pass-through
 
 /* ================================================================
    Knowledge base: load, chunk, TF-IDF index
 ================================================================ */
+/* Stop words. RFP questions are mostly instruction verbiage ("confirm whether your
+   organisation holds…"), and every word left in here ends up in `missing_terms`,
+   which the gap report presents to the user as documentation they should go and write.
+   Only genuinely topic-free words belong here. Words like "level" (service level),
+   "type" (SOC 2 Type II) and "number" (certificate number) must stay searchable. */
 const STOP = new Set(("the a an and or of to in for with on is are does do your our you we can how what which " +
-  "will be by as at from that this it its any all provide describe please detail such other").split(" "));
+  "will be by as at from that this it its any all provide describe please detail such other " +
+  "state outline confirm explain list specify identify give including included include " +
+  "whether have has had been being was were would should must shall may might able " +
+  "used make makes made take taken hold holds held ensure kindly " +
+  "each every both either also more most much many few less least own same than then " +
+  "there their they them these those when where who whom why while about above below " +
+  "into onto over under between during after before within without across per via " +
+  "if but not only just still even ever never always currently " +
+  "relevant applicable appropriate additional further brief often").split(/\s+/));
 /* Light stemmer so query/doc inflections match ("supports"→"support", "policies"→"policy").
    Must be applied identically at index time (termFreqs) and query time — tf/df keys are stems. */
 const stem = (w) => {
@@ -66,8 +80,10 @@ const stem = (w) => {
   if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) return w.slice(0, -1);
   return w;
 };
+/* Query-side tokenizer. Two-letter words are dropped as noise EXCEPT the ones the
+   alias table knows about ("dr", "sla"…), otherwise those aliases could never fire. */
 const tokenize = (s) => [...new Set(String(s).toLowerCase().replace(/[^a-z0-9 ]/g, " ")
-  .split(/\s+/).filter(w => w.length > 2 && !STOP.has(w)))];
+  .split(/\s+/).filter(w => (w.length > 2 || ALIASES[w]) && !STOP.has(w)))];
 const termFreqs = (s) => {
   const tf = Object.create(null);
   for (const w of String(s).toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/)) {
@@ -95,24 +111,32 @@ function reindex() {
   console.log(`[kb] indexed ${KB.docs.size} docs -> ${KB.chunks.length} chunks`);
 }
 
+/* Names the boot scanner deliberately skips: persisting a document under one of them
+   would clobber a folder doc and the document itself would vanish on the next restart. */
+const RESERVED_NAMES = /^(README\.txt|countersign-data\.json)$/i;
 const canonicalName = (name) => {
   const safe = String(name).replace(/[^a-zA-Z0-9 ._-]/g, "_").slice(0, 120) || "doc";
-  return /\.(txt|md|csv|json)$/i.test(safe) ? safe : safe + ".txt";
+  const named = /\.(txt|md|csv|json)$/i.test(safe) ? safe : safe + ".txt";
+  return RESERVED_NAMES.test(named) ? "_" + named : named;
 };
 function addDoc(name, text, persist) {
+  // measured after stripping NULs, or any document containing one reports truncated
+  const rawChars = String(text).split(String.fromCharCode(0)).join("").trim().length;
   text = String(text).replace(/\u0000/g, "").trim().slice(0, MAX_DOC_CHARS);
   if (!text) return false;
   // persisted docs are stored under their canonical filename, so use the same
   // key in memory — /forget and re-ingest then behave identically across restarts
   const key = persist ? canonicalName(name) : name;
   KB.docs.set(key, text);
+  let persisted = null;
   if (persist) {
     try {
       fs.mkdirSync(KB_DIR, { recursive: true });
       fs.writeFileSync(path.join(KB_DIR, key), text);
-    } catch (e) { console.warn("[kb] persist failed:", e.message); }
+      persisted = true;
+    } catch (e) { console.warn("[kb] persist failed:", e.message); persisted = false; }
   }
-  return key;
+  return { key, persisted, chars: text.length, truncated: rawChars > text.length };
 }
 
 function loadKnowledgeBase() {
@@ -150,8 +174,14 @@ const expandTerms = (terms) => {
 };
 
 function retrieve(question, budget = CONTEXT_BUDGET) {
-  // expand aliases on raw tokens (ALIASES is keyed on unstemmed words), then stem to match the index
-  const qTerms = [...new Set(expandTerms(tokenize(question)).map(stem))];
+  // Two term sets. `qTerms` is expanded with acronym aliases (ALIASES is keyed on
+  // unstemmed words) and drives chunk scoring, so "SSO" can find "single sign-on".
+  // `askedTerms` is what the user actually wrote, and is what coverage and
+  // missing_terms are measured over: reporting the expansions would tell someone whose
+  // docs say "SSO" that they are missing documentation on "single" and "sign".
+  const rawTerms = tokenize(question);
+  const askedTerms = [...new Set(rawTerms.map(stem))];
+  const qTerms = [...new Set(expandTerms(rawTerms).map(stem))];
   const scored = [];
   for (const ch of KB.chunks) {
     let score = 0;
@@ -167,16 +197,36 @@ function retrieve(question, budget = CONTEXT_BUDGET) {
     if (picked.length >= 12) break;
   }
   const inKB = (t) => !!KB.df[t] || (ALIASES[t] || []).some(a => KB.df[stem(a)]);
-  const termsCovered = qTerms.filter(inKB).length;
-  const coverage = qTerms.length
-    ? Math.min(1, (termsCovered / qTerms.length) * 0.6 + Math.min(picked.length, 6) / 6 * 0.4)
-    : 0;
+  /* Coverage is how well the KB substantiates the QUESTION, so it is driven by which of
+     the question's terms appear at all; retrieval depth only modulates it. (Adding a flat
+     0.4 for "we found 6 chunks" put a floor under every score, so on any KB with a handful
+     of chunks nothing could land under the gap report's threshold.)
+
+     Terms are weighted by rarity, because a plain term count hides the gaps that matter:
+     "Do you hold ISO 14001 certification?" shares "iso" and "certification" with an
+     ISO 27001 policy, so it scored as half-covered while the one term that decides the
+     answer ("14001") was absent. A term in many chunks is generic and counts for little;
+     a term in none is maximally distinctive and counts for a lot. */
+  const weightOf = (t) => 1 / (1 + (KB.df[t] || 0));
+  let covWeight = 0, totWeight = 0;
+  for (const t of askedTerms) {
+    const w = weightOf(t);
+    totWeight += w;
+    if (inKB(t)) covWeight += w;
+  }
+  const termRatio = totWeight ? covWeight / totWeight : 0;
+  const depth = Math.min(picked.length, 6) / 6;
+  const coverage = askedTerms.length ? Math.min(1, termRatio * (0.75 + 0.25 * depth)) : 0;
+  const blocks = picked.map(s => `[Source: ${s.ch.doc}]\n${s.ch.text}`);
   return {
-    context: picked.map(s => `[Source: ${s.ch.doc}]\n${s.ch.text}`).join("\n\n---\n\n"),
+    context: blocks.join("\n\n---\n\n"),
+    // callers that want the individual chunks must use this — re-splitting `context`
+    // on the separator breaks whenever a source contains a Markdown horizontal rule
+    blocks,
     sources: [...sources],
     coverage,
     chunks_used: picked.length,
-    missing_terms: qTerms.filter(t => !inKB(t)),
+    missing_terms: askedTerms.filter(t => !inKB(t)),
   };
 }
 
@@ -264,33 +314,52 @@ const routes = {
 
   "/search": async (res, body) => {
     if (typeof body.query !== "string") return fail(res, 400, "Provide { query: string }");
-    const k = Math.min(parseInt(body.k, 10) || 5, 20);
+    const k = Math.min(Math.max(parseInt(body.k, 10) || 5, 1), 20);
     const r = retrieve(body.query, CHUNK_SIZE * (k + 1));
     send(res, 200, {
       query: body.query,
       coverage: Math.round(r.coverage * 100) / 100,
       sources: r.sources,
       missing_terms: r.missing_terms,
-      chunks: r.context ? r.context.split("\n\n---\n\n").slice(0, k) : [],
+      chunks: r.blocks.slice(0, k),
     });
   },
 
   "/ingest": async (res, body) => {
-    if (typeof body.name !== "string" || typeof body.text !== "string")
+    if (typeof body.name !== "string" || !body.name.trim() || typeof body.text !== "string")
       return fail(res, 400, "Provide { name: string, text: string } (parse binary formats client-side or via the web app)");
     const stored = addDoc(body.name, body.text, true);
     if (!stored) return fail(res, 400, "Document text is empty");
     reindex();
-    send(res, 200, { ok: true, name: stored, docs: KB.docs.size, chunks: KB.chunks.length });
+    // report truncation and persistence honestly — a silent ok:true here means the
+    // caller believes the whole document is indexed and will survive a restart
+    send(res, 200, {
+      ok: true, name: stored.key, chars: stored.chars,
+      truncated: stored.truncated, max_doc_chars: MAX_DOC_CHARS,
+      persisted: stored.persisted,
+      docs: KB.docs.size, chunks: KB.chunks.length,
+    });
   },
 
   "/forget": async (res, body) => {
-    const gone = KB.docs.delete(body.name) || KB.docs.delete(canonicalName(body.name || ""));
-    if (!gone) return fail(res, 404, "No such document");
+    // A missing name must not fall through to canonicalName("") -> "doc.txt" and
+    // delete an unrelated document.
+    if (typeof body.name !== "string" || !body.name.trim())
+      return fail(res, 400, "Provide { name: string }");
+    // Resolve the key we actually removed, and only unlink the file backing THAT key.
+    // Deleting canonicalName(name) unconditionally would remove a different document's
+    // persisted file when `name` came from the workspace export rather than kb/.
+    const canon = canonicalName(body.name);
+    let key = null;
+    if (KB.docs.delete(body.name)) key = body.name;
+    else if (KB.docs.delete(canon)) key = canon;
+    if (!key) return fail(res, 404, "No such document");
     let removedFile = false;
-    try { fs.unlinkSync(path.join(KB_DIR, canonicalName(body.name || ""))); removedFile = true; } catch (e) {}
+    if (key === canon) {
+      try { fs.unlinkSync(path.join(KB_DIR, canon)); removedFile = true; } catch (e) {}
+    }
     reindex();
-    send(res, 200, { ok: true, docs: KB.docs.size, file_removed: removedFile });
+    send(res, 200, { ok: true, name: key, docs: KB.docs.size, file_removed: removedFile });
   },
 
   "/batch": async (res, body) => {
@@ -329,7 +398,8 @@ const routes = {
       const it = items[i];
       const t = Date.now();
       const retrieval = retrieve(it.question);
-      const opts = { type: it.type, tone: it.tone ?? body.tone, max_words: it.max_words ?? body.max_words };
+      // per-item values override the batch-level defaults (documented in ENGINE.md)
+      const opts = { type: it.type ?? body.type, tone: it.tone ?? body.tone, max_words: it.max_words ?? body.max_words };
       const payload = () => ({
         model: MODEL, max_tokens: 1000,
         messages: [{ role: "user", content: buildPrompt(it.question, retrieval, opts) }],
@@ -382,7 +452,9 @@ const routes = {
     if (!Array.isArray(body.messages)) return fail(res, 400, "Body must be Anthropic /v1/messages JSON");
     const up = await callClaude({
       model: MODEL,
-      max_tokens: Math.min(parseInt(body.max_tokens, 10) || 1024, 1024),
+      // Cap must stay above the app's largest request ("Extract questions" returns a
+      // JSON array of up to 40 items); 1024 truncated that JSON mid-array.
+      max_tokens: Math.min(parseInt(body.max_tokens, 10) || PROXY_MAX_TOKENS, PROXY_MAX_TOKENS),
       messages: body.messages,
       ...(typeof body.system === "string" ? { system: body.system } : {}),
     });
@@ -429,6 +501,9 @@ const server = http.createServer((req, res) => {
     let body;
     try { body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); }
     catch { return fail(res, 400, "Invalid JSON"); }
+    // `null`, `[]` and bare scalars all parse fine but would blow up on property access
+    if (body === null || typeof body !== "object" || Array.isArray(body))
+      return fail(res, 400, "Body must be a JSON object");
     try { await routes[url](res, body); }
     catch (err) {
       if (res.headersSent) { try { res.end(); } catch (e) {} }

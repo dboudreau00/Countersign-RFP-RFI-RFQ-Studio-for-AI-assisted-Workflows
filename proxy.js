@@ -19,6 +19,7 @@
  */
 
 const http = require("http");
+const crypto = require("crypto");
 
 const API_KEY        = process.env.ANTHROPIC_API_KEY || "";
 const TEAM_TOKEN     = process.env.COUNTERSIGN_TOKEN || "";
@@ -26,7 +27,9 @@ const PORT           = parseInt(process.env.PORT || "8787", 10);
 const ALLOW_ORIGIN   = process.env.ALLOW_ORIGIN || "*";
 const ALLOWED_MODELS = ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
 const DEFAULT_MODEL  = "claude-sonnet-4-6";
-const MAX_TOKENS_CAP = 1024;
+// Must stay above what the app asks for on its largest call ("Extract questions"
+// returns a JSON array of up to 40 items); a 1024 cap silently truncated that JSON.
+const MAX_TOKENS_CAP = 8192;
 const MAX_BODY_BYTES = 400_000;
 
 function send(res, code, obj) {
@@ -40,6 +43,14 @@ function send(res, code, obj) {
 const fail = (res, code, message) =>
   send(res, code, { error: { type: "proxy_error", message } });
 
+/* Constant-time compare, to match proxy.php's hash_equals() */
+function tokenOk(given) {
+  const a = Buffer.from(String(given || ""), "utf8");
+  const b = Buffer.from(TEAM_TOKEN, "utf8");
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 const server = http.createServer((req, res) => {
   // CORS preflight
   if (req.method === "OPTIONS") {
@@ -51,10 +62,13 @@ const server = http.createServer((req, res) => {
     });
     return res.end();
   }
-  if (req.method !== "POST" || !/^\/(proxy)?$/.test(req.url.split("?")[0]))
+  // Accept /proxy at any mount point ("/", "/proxy", "/rfp/proxy", trailing slash)
+  // so an nginx location block can sit at a subpath, as proxy.php already does.
+  const urlPath = (req.url.split("?")[0] || "/").replace(/\/+$/, "") || "/";
+  if (req.method !== "POST" || !(urlPath === "/" || urlPath.endsWith("/proxy")))
     return fail(res, req.method === "POST" ? 404 : 405, "POST /proxy only");
   if (!API_KEY) return fail(res, 500, "Server not configured: set ANTHROPIC_API_KEY");
-  if (TEAM_TOKEN && req.headers["x-team-token"] !== TEAM_TOKEN)
+  if (TEAM_TOKEN && !tokenOk(req.headers["x-team-token"]))
     return fail(res, 401, "Missing or wrong team token");
 
   let size = 0;

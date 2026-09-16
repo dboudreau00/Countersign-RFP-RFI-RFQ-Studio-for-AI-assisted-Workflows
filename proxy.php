@@ -19,11 +19,18 @@ $API_KEY        = getenv('ANTHROPIC_API_KEY') ?: 'sk-ant-REPLACE_ME';
 $TEAM_TOKEN     = getenv('COUNTERSIGN_TOKEN') ?: '';       // '' = disabled (not recommended on public URLs)
 $ALLOWED_MODELS = ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001'];
 $DEFAULT_MODEL  = 'claude-sonnet-4-6';
-$MAX_TOKENS_CAP = 1024;      // hard ceiling regardless of what the client asks for
+// Hard ceiling regardless of what the client asks for. Must stay above what the app
+// requests on its largest call ("Extract questions" returns a JSON array of up to 40
+// items); the previous 1024 ceiling silently truncated that JSON mid-array.
+$MAX_TOKENS_CAP = 8192;
 $MAX_BODY_BYTES = 400000;    // ~400 KB — plenty for prompt + retrieved context
 // ------------------------------------------------
 
 $ALLOW_ORIGIN = getenv('ALLOW_ORIGIN') ?: '*';   // tighten to your site's origin in production
+
+// curl is allowed 120s below; without this PHP's own 30s limit kills the request first
+// and the client gets a truncated, non-JSON response instead of the answer.
+if (function_exists('set_time_limit')) @set_time_limit(180);
 
 header('Content-Type: application/json');
 header('X-Content-Type-Options: nosniff');
@@ -61,9 +68,13 @@ if (!is_array($body) || !isset($body['messages']) || !is_array($body['messages']
 
 // Enforce server-side limits: model allowlist + token cap. Strip anything else exotic.
 $model = in_array($body['model'] ?? '', $ALLOWED_MODELS, true) ? $body['model'] : $DEFAULT_MODEL;
+// Match proxy.js: a missing/zero/non-numeric max_tokens falls back to the cap rather
+// than being forwarded as 0, which the API rejects.
+$askedTokens = (int)($body['max_tokens'] ?? 0);
+if ($askedTokens < 1) $askedTokens = $MAX_TOKENS_CAP;
 $payload = [
     'model'      => $model,
-    'max_tokens' => min((int)($body['max_tokens'] ?? $MAX_TOKENS_CAP), $MAX_TOKENS_CAP),
+    'max_tokens' => min($askedTokens, $MAX_TOKENS_CAP),
     'messages'   => $body['messages'],
 ];
 if (isset($body['system']) && is_string($body['system'])) $payload['system'] = $body['system'];

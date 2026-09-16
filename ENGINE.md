@@ -31,14 +31,18 @@ node engine.js
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | — (required for /answer, /proxy) | Your Anthropic key, server-side only |
+| `ANTHROPIC_API_KEY` | — (required for `/answer`, `/batch`, `/proxy`) | Your Anthropic key, server-side only. `/search`, `/ingest` and `/forget` work without it. |
 | `COUNTERSIGN_TOKEN` | *(off)* | Shared secret; all POSTs must send `X-Team-Token` |
 | `PORT` | `8790` | Listen port |
-| `KB_DIR` | `./kb` | Directory of `.txt/.md/.csv/.json` sources |
-| `DATA_FILE` | `./countersign-data.json` | Workspace exported from the web app |
+| `KB_DIR` | `<engine.js dir>/kb` | Directory of `.txt/.md/.csv/.json` sources |
+| `DATA_FILE` | `<engine.js dir>/countersign-data.json` | Workspace exported from the web app |
 | `MODEL` | `claude-sonnet-4-6` | Generation model |
 | `ALLOW_ORIGIN` | `*` | CORS origin for browser callers — tighten in production |
 | `CONCURRENCY` | `2` | Parallel upstream calls for `/batch` (max 4) |
+
+`KB_DIR` and `DATA_FILE` default to paths **next to `engine.js`**, not to the
+working directory — running `node /srv/countersign/engine.js` from `/home/you`
+still reads `/srv/countersign/kb`. Set them explicitly if you want otherwise.
 
 ## Feeding the knowledge base
 
@@ -83,9 +87,13 @@ Response:
 }
 ```
 `coverage` (0–1) estimates how well the knowledge base substantiates the
-question; `missing_terms` lists query concepts found nowhere in the KB — a
-low-coverage answer with many missing terms is your cue to add documentation
-rather than trust the output.
+question: it is the fraction of the question's content terms that appear
+anywhere in the KB, scaled slightly by how many chunks were retrieved. A question
+whose vocabulary is absent scores 0 regardless of how much unrelated material the
+retriever found. `missing_terms` lists the query concepts found nowhere in the KB
+— a low-coverage answer with many missing terms is your cue to add documentation
+rather than trust the output. Common RFP verbiage ("confirm", "whether",
+"outline", "state") is filtered out, so what remains is topical.
 
 ### `POST /search` — retrieval only, no AI call
 ```json
@@ -93,6 +101,9 @@ rather than trust the output.
 ```
 Returns the top chunks with sources, coverage and missing terms. Free and
 instant — useful for debugging the KB or wiring "related docs" features.
+`k` defaults to 5 and is clamped to 1–20; the retriever returns at most 12 chunks
+in total, so values above that are capped by the retrieval budget rather than by
+`k`.
 
 ### `POST /batch` — a whole RFP in one call
 Send an array of questions; answers **stream back as NDJSON** (one JSON object
@@ -123,6 +134,13 @@ Stream (`Content-Type: application/x-ndjson`), one line per event:
 {"kind":"error","index":2,"ref":"7.4","status":429,"message":"Upstream 429 — rate limited"}
 {"kind":"done","total":3,"succeeded":2,"failed":1,"elapsed_ms":5320}
 ```
+`answer` and `error` events also echo back the item's `id` and its original
+`question`, alongside the `index`/`ref` shown above.
+
+Treat the absence of a terminal `done` event as failure: if the connection drops
+mid-stream the engine simply stops writing, and any item you never received an
+event for was not answered.
+
 Answers arrive in **completion order**, not input order — use `index`/`ref` to
 place them. Failed items don't abort the batch. If the client disconnects
 mid-stream, the engine stops launching further upstream calls.
@@ -163,16 +181,38 @@ for (;;) {
 Plain text only — parse binary formats client-side or via the web app.
 Ingested documents are stored under a sanitized canonical filename (echoed back
 as `name` in the response, e.g. `SLA Policy _v2_.pdf.txt`) so the key survives
-restarts; `/forget` accepts either the original or the stored name and also
-deletes the persisted file from `kb/`. When scanning `kb/` at boot, the engine
-skips `README.txt` and `countersign-data.json` — the latter is only read via
-`DATA_FILE`, never as raw text.
+restarts. When scanning `kb/` at boot the engine skips `README.txt` and
+`countersign-data.json` — the latter is only read via `DATA_FILE`, never as raw
+text — so a document whose name would canonicalise onto one of those is stored
+with a leading underscore (`_README.txt`) instead of overwriting it.
+
+`/ingest` response:
+```json
+{ "ok": true, "name": "SLA Policy _v2_.pdf.txt", "chars": 1840,
+  "truncated": false, "max_doc_chars": 220000, "persisted": true,
+  "docs": 43, "chunks": 1192 }
+```
+`truncated` is `true` when the document was longer than `max_doc_chars` and only
+the first `chars` characters were indexed. `persisted` is `false` when the text
+was indexed in memory but could not be written to `kb/`, meaning it will be gone
+after a restart — check both rather than relying on `ok` alone.
+
+`/forget` requires a non-empty `name` (a request without one is a `400`, not a
+delete). It accepts either the original or the stored name and echoes the key it
+actually removed. The persisted file under `kb/` is deleted **only** when that
+key is the canonical filename — forgetting a document that came from `DATA_FILE`
+never removes a same-named file belonging to a different document:
+```json
+{ "ok": true, "name": "SLA Policy _v2_.pdf.txt", "docs": 42, "file_removed": true }
+```
 
 ### `POST /proxy`
-Raw Anthropic `/v1/messages` pass-through (model allowlisted, tokens capped).
-This makes the engine a drop-in replacement for `proxy.js`: point the web
-app's **Team server proxy** at `http://host:8790/proxy` and you only run one
-server for both the app and the engine.
+Raw Anthropic `/v1/messages` pass-through. Only `messages` and `system` are
+forwarded: the model is always the engine's own `MODEL` (the client's `model`
+field is ignored, not allowlisted) and `max_tokens` is capped at 8192. This makes
+the engine a drop-in replacement for `proxy.js`: point the web app's **Team
+server proxy** at `http://host:8790/proxy` and you only run one server for both
+the app and the engine.
 
 ## Client examples
 
@@ -209,6 +249,11 @@ $result = json_decode(curl_exec($ch), true);
 
 - Set `COUNTERSIGN_TOKEN` and a specific `ALLOW_ORIGIN`; serve behind HTTPS
   (reverse-proxy with nginx/Caddy — the engine itself speaks plain HTTP).
+  **`COUNTERSIGN_TOKEN` is the only access control there is**, and `/ingest` and
+  `/forget` work without an API key: with the defaults (`TEAM_TOKEN` off,
+  `ALLOW_ORIGIN: *`, listening on `0.0.0.0`) anyone who can reach the port can add
+  documents to your knowledge base or delete them. Set the token before exposing
+  the port, and bind it to localhost behind the reverse proxy.
 - The engine holds the whole index in memory: a full 60 MB knowledge base is
   roughly 55k chunks and retrieval stays well under 100 ms, but budget RAM
   accordingly (~3–4× the raw text size).

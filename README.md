@@ -10,6 +10,33 @@ CSV or pasted text), generate grounded answers with per-question citations and
 coverage scoring, then export to DOCX, XLSX, CSV — or round-trip answers back
 into the issuer's original spreadsheet.
 
+## Measured, not assumed
+
+[![eval](https://github.com/dboudreau00/Countersign-RFP-RFI-RFQ-Studio-for-AI-assisted-Workflows/actions/workflows/eval.yml/badge.svg)](https://github.com/dboudreau00/Countersign-RFP-RFI-RFQ-Studio-for-AI-assisted-Workflows/actions/workflows/eval.yml)
+
+The answer engine ships with its own evaluation harness in [`eval/`](eval/). A held-out set
+of 35 RFP questions runs against a fictional vendor's documentation and reports:
+
+- **Retrieval quality**: precision@k, recall@k and MRR, labelled by anchor phrase so the
+  labels survive changes to chunking.
+- **Gap detection**: whether the coverage score correctly flags the 7 questions the
+  documentation cannot answer, and does not flag the 28 it can.
+- **Groundedness**: every specific claim in a drafted answer (figures, durations,
+  standards such as `ISO 27001`, vendor names) is checked against the context the model was
+  given. An invented SLA or certification is reported by name.
+- **Answer correctness**: facts each answer must state, phrases it must never state, and
+  for gap questions, that it does not open with "Yes".
+
+A GitHub Actions canary re-runs the set on every change to `engine.js` and fails the build
+if any number falls below [`eval/baseline.json`](eval/baseline.json). No API key and no
+dependencies are needed:
+
+```bash
+node eval/run.js
+```
+
+Details, metric definitions and how to add cases: [`eval/README.md`](eval/README.md).
+
 ## Files
 
 | File | What it is |
@@ -21,6 +48,7 @@ into the issuer's original spreadsheet.
 | `ENGINE.md` | Full API reference and deployment guide for the engine. |
 | `countersign-data.json` | Optional "directory file" — an exported workspace the app auto-loads. You create this from inside the app. |
 | `kb/` | Plain-text knowledge base folder for `engine.js` (see `kb/README.txt`). |
+| `eval/` | Evaluation harness for the engine: held-out question set, retrieval and groundedness metrics, CI drift canary. See `eval/README.md`. |
 
 ## Quick start (no server code at all)
 

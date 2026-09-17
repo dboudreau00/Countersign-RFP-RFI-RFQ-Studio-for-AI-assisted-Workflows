@@ -1,0 +1,37 @@
+NORTHWIND PLATFORM: ARCHITECTURE AND SERVICE LEVELS
+
+1. DEPLOYMENT ARCHITECTURE
+The Northwind platform is a multi-tenant SaaS application running on AWS. The application
+tier runs as stateless containers on Amazon EKS across three availability zones, fronted by
+an Application Load Balancer and AWS WAF. Tenant isolation is enforced at the data layer by
+a mandatory tenant_id predicate applied in the ORM and re-checked by row-level security
+policies in PostgreSQL. A single-tenant dedicated deployment is available on the Enterprise
+plan for customers with regulatory isolation requirements.
+
+2. DATA STORES
+The primary datastore is Amazon Aurora PostgreSQL 16 with a Multi-AZ writer and two read
+replicas. Object storage is Amazon S3 with versioning and Object Lock. Search is served by
+OpenSearch. Caching and job queues use Amazon ElastiCache for Redis in cluster mode.
+
+3. AVAILABILITY AND SLA
+The contractual uptime commitment is 99.9% measured monthly for the Professional plan and
+99.95% for the Enterprise plan, excluding scheduled maintenance announced 5 business days in
+advance. Service credits are 10% of monthly fees for uptime below 99.9%, 25% below 99.5% and
+50% below 99.0%. Measured availability over the trailing 12 months was 99.982%.
+
+4. DISASTER RECOVERY
+The Recovery Point Objective (RPO) is 5 minutes, achieved through continuous WAL archiving to
+a second AWS region. The Recovery Time Objective (RTO) is 4 hours for a full regional
+failover. Backups are taken continuously with point-in-time recovery for 35 days, plus
+monthly snapshots retained for 12 months. Disaster recovery failover is tested twice per year
+and the test report is available to Enterprise customers.
+
+5. BUSINESS CONTINUITY
+A documented Business Continuity Plan is reviewed annually and covers loss of facility, loss
+of key personnel and loss of a critical supplier. Incident response follows a documented
+runbook with a 15-minute acknowledgement target for Severity 1 incidents, 24x7.
+
+6. SCALABILITY AND PERFORMANCE
+The platform serves over 4,200 customer tenants and peaks at 18,000 requests per second.
+Median API response time is 84 ms and the 99th percentile is 410 ms. Horizontal autoscaling
+is driven by request concurrency with a 90-second scale-out window.

@@ -1,0 +1,21 @@
+NORTHWIND: SUPPORT AND IMPLEMENTATION
+
+SUPPORT TIERS
+Standard support is included with every plan and covers business hours in the customer's
+region with a 4-hour first-response target. Premium support adds 24x7 coverage, a 1-hour
+first-response target for Severity 1 incidents, and a named Technical Account Manager who
+runs a monthly service review. All plans include access to the documentation portal, the
+public status page and the community forum.
+
+IMPLEMENTATION
+A typical mid-market implementation takes 6 to 8 weeks: discovery (1 week), configuration
+and data migration (3 to 4 weeks), integration and user acceptance testing (2 weeks), then
+go-live and hypercare (1 week). Enterprise implementations with complex integrations
+typically run 10 to 14 weeks. Every implementation is led by a named project manager and
+includes administrator training and a train-the-trainer session for end-user champions.
+
+CUSTOMER SUCCESS
+After go-live each account is assigned a customer success manager who runs quarterly
+business reviews. Adoption is tracked on a shared dashboard covering licence utilisation,
+weekly active users and feature depth, and the review agenda includes a roadmap preview
+and open enhancement requests.

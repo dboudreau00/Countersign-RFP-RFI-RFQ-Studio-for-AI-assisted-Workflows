@@ -1,0 +1,24 @@
+name: eval
+
+# Drift canary for the answer engine. Runs the held-out retrieval set against engine.js and
+# fails when precision@k, recall@k, MRR, gap detection or recorded-answer groundedness fall
+# below eval/baseline.json. Needs no secrets: everything here is deterministic.
+
+on:
+  push:
+    branches: [main]
+    paths: ["engine.js", "eval/**", ".github/workflows/eval.yml"]
+  pull_request:
+    paths: ["engine.js", "eval/**", ".github/workflows/eval.yml"]
+  workflow_dispatch:
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Retrieval quality and groundedness canary
+        run: node eval/run.js

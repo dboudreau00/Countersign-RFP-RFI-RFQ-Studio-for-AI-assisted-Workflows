@@ -1,0 +1,294 @@
+{
+  "_comment": "Held-out evaluation set for engine.js retrieval and answer drafting. anchors: phrases that identify a RELEVANT chunk (used for precision@k / recall@k). must_mention: facts a correct drafted answer states. must_not_mention: phrases that only appear if the model invented them. gap: the corpus does not cover this question and the coverage score must fall below gap_threshold. verdict_not: for compliance questions, the drafted answer must not open with this verdict.",
+  "k": [1, 3, 5],
+  "gap_threshold": 0.4,
+  "cases": [
+    {
+      "id": "sso-providers",
+      "type": "compliance",
+      "question": "Does the platform support SAML 2.0 single sign-on? List the identity providers you have production integrations with.",
+      "anchors": ["SAML 2.0", "Okta"],
+      "must_mention": ["SAML", "Okta"],
+      "must_not_mention": ["Ping Identity"],
+      "reference": "Yes. SAML 2.0 SSO with Okta, Microsoft Entra ID, Google Workspace and OneLogin, plus OpenID Connect for custom providers."
+    },
+    {
+      "id": "scim",
+      "type": "compliance",
+      "question": "Is SCIM 2.0 user provisioning supported, and for which identity providers?",
+      "anchors": ["SCIM 2.0"],
+      "must_mention": ["SCIM"],
+      "reference": "Yes. SCIM 2.0 provisioning and de-provisioning for Okta and Entra ID."
+    },
+    {
+      "id": "mfa-admins",
+      "type": "compliance",
+      "question": "Confirm that multi-factor authentication can be enforced for administrative accounts and state the supported factors.",
+      "anchors": ["TOTP", "WebAuthn"],
+      "must_mention": ["TOTP"],
+      "reference": "Yes. MFA is enforced for all administrative accounts; TOTP and WebAuthn hardware keys are supported."
+    },
+    {
+      "id": "encryption-at-rest",
+      "type": "technical",
+      "question": "Describe how customer data is encrypted at rest and how encryption keys are managed and rotated.",
+      "anchors": ["AES-256-GCM", "AWS KMS"],
+      "must_mention": ["AES-256", "KMS"],
+      "must_not_mention": ["AES-128"],
+      "reference": "AES-256-GCM at rest; keys in AWS KMS with automatic annual rotation; BYOK on Enterprise."
+    },
+    {
+      "id": "tls",
+      "type": "technical",
+      "question": "Which TLS versions do you support for data in transit?",
+      "anchors": ["TLS 1.3"],
+      "must_mention": ["TLS 1.3"],
+      "reference": "TLS 1.3, with TLS 1.2 as the minimum for legacy clients; SSLv3, TLS 1.0 and 1.1 are disabled."
+    },
+    {
+      "id": "iso27001",
+      "type": "compliance",
+      "question": "Confirm whether you hold a current ISO 27001 certification and state the certificate number, issuer and expiry.",
+      "anchors": ["NW-27001-2024", "BSI"],
+      "must_mention": ["NW-27001-2024", "BSI"],
+      "must_not_mention": ["ISO 14001"],
+      "reference": "Yes. ISO 27001:2022, certificate NW-27001-2024, issued by BSI, valid through March 2027."
+    },
+    {
+      "id": "soc2",
+      "type": "compliance",
+      "question": "Do you undergo an annual SOC 2 Type II audit? State the scope and the period covered by the latest report.",
+      "anchors": ["SOC 2 Type II", "31 March 2026"],
+      "must_mention": ["SOC 2", "31 March 2026"],
+      "reference": "Yes. Annual SOC 2 Type II covering Security, Availability and Confidentiality; latest period 1 April 2025 to 31 March 2026."
+    },
+    {
+      "id": "audit-log",
+      "type": "technical",
+      "question": "Describe your audit logging capability, including retention period and how logs reach a customer SIEM.",
+      "anchors": ["400 days", "SIEM"],
+      "must_mention": ["400 days", "SIEM"],
+      "reference": "Immutable audit log of all administrative and data-access events, retained 400 days, exportable via API or streamed to a SIEM over webhook or to S3."
+    },
+    {
+      "id": "pentest",
+      "type": "compliance",
+      "question": "Do you commission independent penetration testing? State the frequency, the firm, and whether reports are shared.",
+      "anchors": ["Cure53"],
+      "must_mention": ["Cure53", "annual"],
+      "reference": "Yes. Annual third-party penetration test by Cure53; executive summary shared on request."
+    },
+    {
+      "id": "vuln-sla",
+      "type": "technical",
+      "question": "State your remediation targets for critical, high and medium vulnerabilities.",
+      "anchors": ["within 7 days", "high within 30 days"],
+      "must_mention": ["7 days", "30 days", "90 days"],
+      "reference": "Critical within 7 days, high within 30 days, medium within 90 days."
+    },
+    {
+      "id": "tenant-isolation",
+      "type": "technical",
+      "question": "Describe how tenant isolation is enforced in your multi-tenant architecture.",
+      "anchors": ["row-level security", "tenant_id"],
+      "must_mention": ["row-level"],
+      "reference": "Mandatory tenant_id predicate in the ORM re-checked by PostgreSQL row-level security; single-tenant dedicated deployment available on Enterprise."
+    },
+    {
+      "id": "uptime-sla",
+      "type": "commercial",
+      "question": "State your contractual uptime commitment for each plan.",
+      "anchors": ["99.9%", "99.95%"],
+      "must_mention": ["99.9%", "99.95%"],
+      "must_not_mention": ["99.99%"],
+      "reference": "99.9% monthly on Professional, 99.95% on Enterprise, excluding announced maintenance."
+    },
+    {
+      "id": "service-credits",
+      "type": "commercial",
+      "question": "Describe the service credit regime that applies when the uptime commitment is missed.",
+      "anchors": ["10% of monthly fees", "50% below"],
+      "must_mention": ["10%", "25%", "50%"],
+      "reference": "10% of monthly fees below 99.9%, 25% below 99.5%, 50% below 99.0%."
+    },
+    {
+      "id": "rpo-rto",
+      "type": "technical",
+      "question": "State your Recovery Point Objective and Recovery Time Objective for a full regional failover, and how often failover is tested.",
+      "anchors": ["5 minutes", "4 hours", "twice per year"],
+      "must_mention": ["5 minutes", "4 hours"],
+      "reference": "RPO 5 minutes via continuous WAL archiving to a second region; RTO 4 hours; failover tested twice per year."
+    },
+    {
+      "id": "backups",
+      "type": "technical",
+      "question": "Describe your backup schedule and retention.",
+      "anchors": ["35 days", "monthly snapshots"],
+      "must_mention": ["35 days"],
+      "reference": "Continuous backups with point-in-time recovery for 35 days plus monthly snapshots retained 12 months."
+    },
+    {
+      "id": "api-auth-limits",
+      "type": "technical",
+      "question": "Describe API authentication and the rate limits that apply per plan.",
+      "anchors": ["OAuth 2.0", "1,000 requests"],
+      "must_mention": ["OAuth", "1,000"],
+      "reference": "OAuth 2.0 client credentials or scoped personal access tokens; 1,000 requests per minute on Professional, 5,000 on Enterprise."
+    },
+    {
+      "id": "integrations",
+      "type": "narrative",
+      "question": "List the native integrations available with common enterprise systems.",
+      "anchors": ["Salesforce", "ServiceNow"],
+      "must_mention": ["Salesforce", "ServiceNow"],
+      "must_not_mention": ["Workday", "SAP"],
+      "reference": "Salesforce, HubSpot, Slack, Microsoft Teams, Jira and ServiceNow."
+    },
+    {
+      "id": "webhooks",
+      "type": "technical",
+      "question": "Do you provide outbound webhooks, and how are they secured?",
+      "anchors": ["HMAC-SHA256"],
+      "must_mention": ["HMAC"],
+      "reference": "Webhooks for 40 event types, each delivery signed with HMAC-SHA256; retries with exponential backoff for up to 24 hours."
+    },
+    {
+      "id": "pricing-model",
+      "type": "commercial",
+      "question": "Outline your licensing and pricing model, including the unit of licensing and minimum commitment per plan.",
+      "anchors": ["Named user subscription", "Minimum seats"],
+      "must_mention": ["named user"],
+      "reference": "Named user subscription; minimum 5 seats on Starter, 25 on Professional, 100 on Enterprise."
+    },
+    {
+      "id": "volume-discounts",
+      "type": "commercial",
+      "question": "Describe the volume discounts available above 500 seats.",
+      "anchors": ["22%", "30%"],
+      "must_mention": ["22%", "30%"],
+      "reference": "Enterprise: 22% at 500 seats, 30% at 1000 seats; a further 5% for multi-year prepayment."
+    },
+    {
+      "id": "payment-terms",
+      "type": "commercial",
+      "question": "State your standard payment terms and invoicing options.",
+      "anchors": ["net 30", "quarterly invoicing"],
+      "must_mention": ["net 30"],
+      "reference": "Net 30 from invoice; annual invoicing standard, quarterly available on Enterprise at no surcharge."
+    },
+    {
+      "id": "support-model",
+      "type": "narrative",
+      "question": "Describe the support model, response targets and hours of coverage on the premium tier.",
+      "anchors": ["1-hour", "Technical Account Manager"],
+      "must_mention": ["Technical Account Manager"],
+      "reference": "Premium: 24x7, 1-hour Severity 1 first response, named Technical Account Manager with monthly service review."
+    },
+    {
+      "id": "implementation",
+      "type": "narrative",
+      "question": "Describe your typical implementation approach and elapsed time for a mid-market customer.",
+      "anchors": ["6 to 8 weeks"],
+      "must_mention": ["6 to 8 weeks"],
+      "reference": "6 to 8 weeks: discovery, configuration and migration, integration and UAT, go-live and hypercare; led by a named project manager."
+    },
+    {
+      "id": "customer-success",
+      "type": "narrative",
+      "question": "Describe your approach to customer success and how adoption is measured after go-live.",
+      "anchors": ["quarterly business reviews", "weekly active users"],
+      "must_mention": ["quarterly"],
+      "reference": "Assigned customer success manager, quarterly business reviews, adoption dashboard covering licence utilisation, weekly active users and feature depth."
+    },
+    {
+      "id": "data-residency",
+      "type": "compliance",
+      "question": "In which AWS regions can customer data be hosted, and is the region selectable at provisioning?",
+      "anchors": ["eu-west-1", "ap-southeast-2"],
+      "must_mention": ["Ireland", "Sydney"],
+      "reference": "Yes. eu-west-1 (Ireland), us-east-1 (N. Virginia) or ap-southeast-2 (Sydney), selected at provisioning and never moved without written instruction."
+    },
+    {
+      "id": "subprocessors",
+      "type": "compliance",
+      "question": "How much notice do you give before adding a new sub-processor?",
+      "anchors": ["30 days' notice"],
+      "must_mention": ["30 days"],
+      "reference": "30 days' notice of any addition, with a right to object in writing within that period."
+    },
+    {
+      "id": "dpa-sccs",
+      "type": "compliance",
+      "question": "Do you offer a GDPR Data Processing Agreement, and which international transfer mechanism does it rely on?",
+      "anchors": ["Standard Contractual Clauses"],
+      "must_mention": ["Standard Contractual Clauses"],
+      "reference": "Yes. DPA incorporating the 2021 EU Standard Contractual Clauses, signed with the Enterprise order form; UK IDTA included."
+    },
+    {
+      "id": "data-deletion",
+      "type": "compliance",
+      "question": "What happens to customer data after contract termination, and how quickly is it deleted?",
+      "anchors": ["30 days of termination", "purged within 90 days"],
+      "must_mention": ["30 days", "90 days"],
+      "reference": "Deleted from production within 30 days of termination; backup copies purged within 90 days; deletion certificate on request."
+    },
+
+    {
+      "id": "gap-iso14001",
+      "type": "compliance",
+      "gap": true,
+      "question": "Do you hold ISO 14001 environmental certification, and what are your carbon reduction targets?",
+      "verdict_not": "Yes",
+      "must_not_mention": ["ISO 14001 certified", "ISO 14001:2015"],
+      "reference": "Not covered by the corpus. A correct answer does not claim ISO 14001 or invent targets."
+    },
+    {
+      "id": "gap-renewable",
+      "type": "narrative",
+      "gap": true,
+      "question": "State the proportion of renewable energy used by the infrastructure hosting the service.",
+      "reference": "Not covered by the corpus. A correct answer does not invent a percentage."
+    },
+    {
+      "id": "gap-fedramp",
+      "type": "compliance",
+      "gap": true,
+      "question": "Are you FedRAMP authorized? State the impact level.",
+      "verdict_not": "Yes",
+      "must_not_mention": ["FedRAMP Moderate", "FedRAMP High", "FedRAMP Low"],
+      "reference": "Not covered by the corpus. A correct answer does not claim authorization or an impact level."
+    },
+    {
+      "id": "gap-mobile-app",
+      "type": "compliance",
+      "gap": true,
+      "question": "Do you provide native iOS and Android mobile applications?",
+      "verdict_not": "Yes",
+      "reference": "Not covered by the corpus."
+    },
+    {
+      "id": "gap-wcag",
+      "type": "compliance",
+      "gap": true,
+      "question": "Does the product conform to WCAG 2.1 AA, and do you publish a VPAT?",
+      "verdict_not": "Yes",
+      "reference": "Not covered by the corpus."
+    },
+    {
+      "id": "gap-on-prem",
+      "type": "compliance",
+      "gap": true,
+      "question": "Can the platform be deployed on-premises inside our own data centre?",
+      "verdict_not": "Yes",
+      "reference": "Not covered by the corpus. The dedicated single-tenant option is still cloud-hosted."
+    },
+    {
+      "id": "gap-escrow",
+      "type": "compliance",
+      "gap": true,
+      "question": "Do you offer source code escrow?",
+      "verdict_not": "Yes",
+      "reference": "Not covered by the corpus."
+    }
+  ]
+}

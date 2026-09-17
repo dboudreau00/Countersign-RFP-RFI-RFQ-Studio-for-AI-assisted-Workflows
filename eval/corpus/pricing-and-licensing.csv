@@ -1,0 +1,8 @@
+Plan,Licensing model,List price per user per month (USD),Minimum seats,Contract term,Volume discount,Included support
+Starter,Named user subscription,29,5,Annual,None,Business hours email
+Professional,Named user subscription,59,25,Annual or 3-year,10% at 100 seats / 18% at 250 seats,Business hours with 4-hour response
+Enterprise,Named user subscription,109,100,3-year preferred,22% at 500 seats / 30% at 1000 seats,24x7 Premium with named TAM
+Platform API,Consumption (per 10k API calls),4,N/A,Annual,15% above 50M calls per year,Follows the base plan
+Note,All prices are list and exclude applicable taxes. Multi-year prepayment attracts a further 5% discount. Pricing is held flat for the committed term with uplift at renewal capped at CPI or 4% whichever is lower.,,,,,
+Note,Payment terms are net 30 from invoice date. Annual invoicing is standard; quarterly invoicing is available on the Enterprise plan at no surcharge.,,,,,
+Note,There is no charge for read-only Auditor seats on the Enterprise plan up to 10% of the paid seat count.,,,,,

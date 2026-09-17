@@ -223,6 +223,8 @@ function retrieve(question, budget = CONTEXT_BUDGET) {
     // callers that want the individual chunks must use this — re-splitting `context`
     // on the separator breaks whenever a source contains a Markdown horizontal rule
     blocks,
+    // the same chunks in rank order with their scores, for evaluation (eval/run.js)
+    ranked: picked.map(s => ({ doc: s.ch.doc, score: s.score, text: s.ch.text })),
     sources: [...sources],
     coverage,
     chunks_used: picked.length,
@@ -512,10 +514,16 @@ const server = http.createServer((req, res) => {
   });
 });
 
-loadKnowledgeBase();
-server.listen(PORT, () =>
-  console.log(
-    `Countersign Engine on http://0.0.0.0:${PORT}  ·  ${KB.docs.size} docs / ${KB.chunks.length} chunks` +
-    (TEAM_TOKEN ? "  ·  token required" : "  ·  WARNING: no team token set")
-  )
-);
+if (require.main === module) {
+  loadKnowledgeBase();
+  server.listen(PORT, () =>
+    console.log(
+      `Countersign Engine on http://0.0.0.0:${PORT}  ·  ${KB.docs.size} docs / ${KB.chunks.length} chunks` +
+      (TEAM_TOKEN ? "  ·  token required" : "  ·  WARNING: no team token set")
+    )
+  );
+} else {
+  // Required as a module (the eval harness does this): expose the pipeline without
+  // touching the filesystem or opening a port. Callers load their own knowledge base.
+  module.exports = { KB, addDoc, reindex, retrieve, buildPrompt, callClaude, tokenize, stem, STOP, MODEL, CHUNK_SIZE };
+}

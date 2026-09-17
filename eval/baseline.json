@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-09-17T02:05:10.111Z",
+  "updated_at": "2026-09-17T12:05:12.155Z",
   "cases": 35,
   "aggregates": {
     "p@1": 0.964,
@@ -9,6 +9,11 @@
     "p@5": 0.229,
     "r@5": 1,
     "mrr": 0.982,
-    "gap_accuracy": 0.857
+    "gap_accuracy": 0.857,
+    "groundedness": 1,
+    "mention_rate": 1,
+    "answers_ok": 1,
+    "forbidden_hits": 0,
+    "answers_scored": 35
   }
 }

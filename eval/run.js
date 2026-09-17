@@ -17,7 +17,7 @@
  *   mrr           1 / rank of the first relevant chunk
  *   gap_accuracy  does coverage < gap_threshold agree with whether the case is a known gap
  *   groundedness  share of the answer's specific claims (figures, standards, names) that the
- *                 retrieved context actually contains (see eval/groundedness.js)
+ *                 retrieved context or the question actually contains (see eval/groundedness.js)
  *   must_mention / must_not_mention / verdict_not   answer correctness checks from cases.json
  */
 "use strict";
@@ -39,6 +39,8 @@ const ANSWERS_FILE = path.resolve(ROOT, "answers.json");
 const EPS = 0.001;
 const LIVE = flag("--live") || flag("--record");
 const DELAY_MS = parseInt(opt("--delay", "1500"), 10);
+const JSON_OUT = flag("--json");
+const say = (...a) => (JSON_OUT ? console.error : console.log)(...a);   // keep stdout pure JSON under --json
 
 const norm = (s) => String(s || "").toLowerCase().replace(/[‘’]/g, "'").replace(/\s+/g, " ");
 const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
@@ -51,13 +53,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
    so a CRLF checkout has a different chunk layout from an LF checkout of the same corpus
    and the ranking metrics move by a few thousandths. The numbers must not depend on which
    operating system ran the checkout. */
-const normaliseText = (t) => t.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+const normaliseText = (t) => (t.charCodeAt(0) === 0xFEFF ? t.slice(1) : t).replace(/\r\n?/g, "\n");
 
 function loadCorpus() {
   engine.KB.docs.clear();
   const files = fs.readdirSync(CORPUS_DIR).filter((f) => /\.(txt|md|csv|json)$/i.test(f)).sort();
   for (const f of files) engine.addDoc(f, normaliseText(fs.readFileSync(path.join(CORPUS_DIR, f), "utf8")), false);
-  engine.reindex();
+  const log = console.log;
+  if (JSON_OUT) console.log = console.error;   // the engine logs its index summary to stdout
+  try { engine.reindex(); } finally { console.log = log; }
   return files;
 }
 
@@ -104,7 +108,7 @@ function evalRetrieval(c, ks, gapThreshold) {
 /* ------------------------------------------------------------------ answer checks */
 function evalAnswer(c, answer, retrieval) {
   const a = norm(answer);
-  const g = G.score(answer, retrieval.context);
+  const g = G.score(answer, retrieval.context, c.question);
   const mention = (c.must_mention || []).map((m) => ({ phrase: m, ok: a.includes(norm(m)) }));
   const forbidden = (c.must_not_mention || []).filter((m) => a.includes(norm(m)));
   const verdictOk = !c.verdict_not || !new RegExp("^\\s*" + c.verdict_not + "\\b", "i").test(answer);
@@ -238,6 +242,13 @@ function compare(current, baseline) {
       agg.forbidden_hits = scored.reduce((n, a) => n + a.forbidden.length, 0);
       agg.answers_scored = scored.length;
     }
+    // mutation check: an invention appended to a real answer must be flagged on that answer's
+    // real context. A scorer loosened until every answer passes fails here.
+    const TAMPER = " We also hold ISO 99999 certification and our uptime commitment is 99.999%.";
+    report.tamper_missed = results
+      .filter((r) => r.id in answers && G.score(answers[r.id] + TAMPER, r.retrieval.context, byId.get(r.id).question).unsupported.length < 2)
+      .map((r) => r.id);
+    report.tamper_checked = scored.length;
   }
   report.aggregates = agg;
   report.results = results.map(({ retrieval, ...rest }) => rest);   // drop the bulky context from the report
@@ -248,7 +259,7 @@ function compare(current, baseline) {
   const baseline = fs.existsSync(BASELINE_FILE) ? JSON.parse(fs.readFileSync(BASELINE_FILE, "utf8")) : null;
   const cmp = compare(agg, baseline && baseline.aggregates);
 
-  if (flag("--json")) { console.log(JSON.stringify({ ...report, comparison: cmp.rows }, null, 2)); }
+  if (JSON_OUT) { console.log(JSON.stringify({ ...report, comparison: cmp.rows }, null, 2)); }
   else {
     console.log(`\ncorpus: ${files.length} docs, ${engine.KB.chunks.length} chunks   cases: ${spec.cases.length} (${covered.length} covered, ${results.length - covered.length} gaps)\n`);
     const hdr = ["case".padEnd(20), "cov", "gap", ...ks.map((k) => "P@" + k), ...ks.map((k) => "R@" + k), "RR", answers ? "ground mention ok" : ""].join("  ");
@@ -271,6 +282,8 @@ function compare(current, baseline) {
     console.log(`\nscorer self-tests: ${selfTests.length - selfFail.length}/${selfTests.length} pass` +
       (selfFail.length ? "\n  " + selfFail.map((t) => `FAIL ${t.name}: ${t.detail}`).join("\n  ") : ""));
     if (answersMeta) console.log(`answers: ${answersMeta.source} from ${answersMeta.model} (${answersMeta.recorded_at})`);
+    if (report.tamper_checked) console.log(`tamper check: ${report.tamper_checked - report.tamper_missed.length}/${report.tamper_checked} answers flag an appended invention` +
+      (report.tamper_missed.length ? " (missed: " + report.tamper_missed.join(", ") + ")" : ""));
 
     console.log("\nmetric          current   baseline");
     for (const row of cmp.rows)
@@ -279,15 +292,16 @@ function compare(current, baseline) {
 
   if (flag("--update-baseline")) {
     fs.writeFileSync(BASELINE_FILE, JSON.stringify({ updated_at: new Date().toISOString(), cases: spec.cases.length, aggregates: agg }, null, 2) + "\n");
-    console.log(`\nbaseline written to ${path.basename(BASELINE_FILE)}`);
+    say(`\nbaseline written to ${path.basename(BASELINE_FILE)}`);
   }
 
   const problems = [];
   if (selfFail.length) problems.push(`${selfFail.length} scorer self-test(s) failed`);
+  if (report.tamper_missed && report.tamper_missed.length) problems.push(`scorer missed an appended invention in ${report.tamper_missed.length} answer(s)`);
   if (cmp.regressed) problems.push("quality regressed against baseline");
-  if (!baseline && !flag("--update-baseline")) console.log("\nno baseline yet: run with --update-baseline to set one");
-  if (problems.length) { console.log("\nRESULT: FAIL (" + problems.join("; ") + ")"); process.exit(1); }
-  console.log("\nRESULT: PASS");
+  if (!baseline && !flag("--update-baseline")) say("\nno baseline yet: run with --update-baseline to set one");
+  if (problems.length) { say("\nRESULT: FAIL (" + problems.join("; ") + ")"); process.exit(1); }
+  say("\nRESULT: PASS");
 })().catch((e) => { console.error(e); process.exit(2); });
 
 function byIdVerdict(spec, id) { const c = spec.cases.find((x) => x.id === id); return c && c.verdict_not; }

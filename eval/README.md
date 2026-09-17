@@ -41,7 +41,7 @@ chunk number keeps the labels valid when chunk size changes.
 | `r@k` | Share of the case's anchors that appear somewhere in the top-k chunks. |
 | `mrr` | Mean of 1 / rank of the first relevant chunk. |
 | `gap_accuracy` | The engine's coverage score is meant to flag questions the documentation cannot answer. This is the share of cases where `coverage < gap_threshold` agrees with whether the case is a known gap. |
-| `groundedness` | Share of an answer's specific claims (figures, durations, percentages, standards such as `ISO 27001`, acronyms, proper nouns) that appear in the context the model was given. An unsupported specific is the signature of an invented SLA, certification or partner. |
+| `groundedness` | Share of an answer's specific claims (figures, durations, percentages, standards such as `ISO 27001`, acronyms, proper nouns) that appear in the context the model was given or in the question itself. An unsupported specific is the signature of an invented SLA, certification or partner. Matching tolerates the ways one fact gets written: `1,000` and `1k`, `three` and `3`, `4 business hours` for `4 hours`, a table cell under its column header, and a spelled-out name whose acronym is in the context. |
 | `mention_rate` | Share of each case's `must_mention` facts that the answer states. |
 | `answers_ok` | Share of answers that mention everything required, mention nothing forbidden, and (for gap compliance questions) do not open with `Yes`. |
 | `forbidden_hits` | Count of `must_not_mention` phrases found across all answers. Lower is better. |
@@ -58,8 +58,14 @@ non-zero if any is worse. `.github/workflows/eval.yml` runs it on every push and
 request that touches `engine.js` or `eval/`. When a change legitimately improves a number
 the run passes and marks it `up`; run `--update-baseline` to raise the floor.
 
-To see the canary trip, break retrieval on purpose (for example, add `saml` to `STOP` in
-`engine.js`) and run it.
+The scorer is guarded too. Every recorded answer is re-scored with an invented certification
+and uptime figure appended, on that answer's real context, and the run fails if the scorer
+stops flagging them. A scorer loosened until every answer passes cannot get through CI.
+
+To see the canary trip, break retrieval on purpose and run it: reverse the ranking sort in
+`retrieve()` in `engine.js`, or put a floor of 0.4 under coverage so no question can ever be
+a gap. Stopping a single query word (adding `saml` to `STOP`) is not enough: the remaining
+terms still find the right chunk, which is the point of the metric.
 
 ## Adding cases
 
@@ -75,5 +81,9 @@ appears nowhere in the corpus, so a typo in a label cannot masquerade as a retri
   design. Only `engine.js` is exercised here.
 - Groundedness is lexical. A paraphrased false claim with no specifics in it passes.
   Semantic judgement would need a model call, which is the thing this harness avoids in CI.
+- The reverse also happens: a fact the model derived correctly but that the context states
+  in another form (a count of items in a list, a value read off a table that was split
+  across chunks) can be flagged. Read the `unsupported` list under a case before treating
+  a groundedness dip as a hallucination.
 - Recorded answers reflect whichever model produced them; check the `model` field in
   `answers.json` before reading too much into a groundedness delta.

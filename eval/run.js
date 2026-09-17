@@ -47,10 +47,16 @@ const pct = (x) => (x * 100).toFixed(0).padStart(3) + "%";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ------------------------------------------------------------------ corpus + cases */
+/* Line endings are normalised before indexing. Chunks are cut every CHUNK_SIZE characters,
+   so a CRLF checkout has a different chunk layout from an LF checkout of the same corpus
+   and the ranking metrics move by a few thousandths. The numbers must not depend on which
+   operating system ran the checkout. */
+const normaliseText = (t) => t.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+
 function loadCorpus() {
   engine.KB.docs.clear();
   const files = fs.readdirSync(CORPUS_DIR).filter((f) => /\.(txt|md|csv|json)$/i.test(f)).sort();
-  for (const f of files) engine.addDoc(f, fs.readFileSync(path.join(CORPUS_DIR, f), "utf8"), false);
+  for (const f of files) engine.addDoc(f, normaliseText(fs.readFileSync(path.join(CORPUS_DIR, f), "utf8")), false);
   engine.reindex();
   return files;
 }

@@ -842,15 +842,40 @@ async function parseFile(file){
   } else if(ext === "xlsx" || ext === "xls" || ext === "csv"){
     needLib(typeof XLSX !== "undefined", "The spreadsheet");
     const wb = XLSX.read(buf, { type: "array" });
-    text = wb.SheetNames.map(n =>
-      "## Sheet: " + n + "\n" + XLSX.utils.sheet_to_csv(wb.Sheets[n])
-    ).join("\n\n");
+    const cut = [];
+    text = wb.SheetNames.map(n => {
+      const ws = wb.Sheets[n];
+      if(ws["!ref"]){
+        const b = sheetBounds(ws), s = XLSX.utils.decode_range(ws["!ref"]).s;
+        if(b.truncated) cut.push(n);
+        ws["!ref"] = XLSX.utils.encode_range({ s, e: { r: Math.max(s.r, b.e.r), c: Math.max(s.c, b.e.c) } });
+      }
+      // empty rows are commas only: noise in the bucket and in the extraction budget
+      return "## Sheet: " + n + "\n" + XLSX.utils.sheet_to_csv(ws, { blankrows: false });
+    }).join("\n\n");
+    if(cut.length) toast(`${file.name}: only the first ${SHEET_MAX_ROWS.toLocaleString()} rows and ${SHEET_MAX_COLS} columns of ${cut.join(", ")} were read`, true);
   } else { // txt / md
     text = new TextDecoder().decode(buf);
   }
   text = text.replace(/\u0000/g,"").replace(/[ \t]+\n/g,"\n").trim();
   if(!text) throw new Error("No extractable text (scanned PDF?)");
   return text.slice(0, MAX_DOC_CHARS);
+}
+
+/* A sheet's declared range can be absurd: one populated cell in XFD1048576 makes it
+   17 billion cells from A1, and sheet_to_json / sheet_to_csv walk every one of them.
+   Bound the walk by the cells that actually exist, and cap it. */
+const SHEET_MAX_ROWS = 10000, SHEET_MAX_COLS = 100;
+function sheetBounds(ws){
+  let r = 0, c = 0;
+  for(const k in ws){
+    if(k[0] === "!") continue;
+    const a = XLSX.utils.decode_cell(k);
+    if(a.r > r) r = a.r;
+    if(a.c > c) c = a.c;
+  }
+  return { e: { r: Math.min(r, SHEET_MAX_ROWS - 1), c: Math.min(c, SHEET_MAX_COLS - 1) },
+           truncated: r >= SHEET_MAX_ROWS || c >= SHEET_MAX_COLS };
 }
 
 /* ---------- retrieval: score bucket chunks against a question ---------- */
@@ -1293,9 +1318,10 @@ $("rfp-file-input").addEventListener("change", async e => {
 function sheetGrid(name){
   const ws = rfpWorkbook.Sheets[name];
   if(!ws) return [];
-  const used = XLSX.utils.decode_range(ws["!ref"] || "A1");
-  const fromA1 = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(0, used.e.r), c: Math.max(0, used.e.c) } });
-  return XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", range: fromA1 });
+  const b = sheetBounds(ws);
+  const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", range: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: b.e }) });
+  grid.truncated = b.truncated;
+  return grid;
 }
 function setupSheetMap(){
   const sel = $("map-sheet");
@@ -1392,7 +1418,8 @@ $("map-import").onclick = async () => {
   const grid = sheetGrid(sheet);
   const start = firstDataRow(grid);
   const qc = +$("map-q").value, rc = +$("map-ref").value, ac = +$("map-ans").value;
-  rfpMapping = { sheet, headerRows: start, qCol: qc, refCol: rc, ansCol: ac, file: rfpFileName };
+  rfpMapping = { sheet, headerRows: start, qCol: qc, refCol: rc, ansCol: ac, file: rfpFileName, truncated: !!grid.truncated };
+  if(grid.truncated) toast(`Only the first ${SHEET_MAX_ROWS.toLocaleString()} rows and ${SHEET_MAX_COLS} columns of “${sheet}” were read`, true);
   let added = 0;
   for(let r = start; r < grid.length; r++){
     const qt = String(grid[r][qc] || "").trim();
@@ -2025,7 +2052,12 @@ $("download-btn").onclick = async () => {
       return toast("Round-trip needs a mapped spreadsheet RFP with a response column", true);
     const ws = rfpWorkbook.Sheets[rfpMapping.sheet];
     if(!ws) return toast(`Sheet “${rfpMapping.sheet}” isn't in the loaded workbook. Re-import the column mapping`, true);
-    const range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+    if(rfpMapping.truncated)
+      return toast(`“${rfpMapping.sheet}” has cells beyond row ${SHEET_MAX_ROWS.toLocaleString()} or column ${SHEET_MAX_COLS}, so it can't be written back safely. Use the XLSX export instead`, true);
+    // The writer walks the whole declared range, and formatting a whole column declares a
+    // million rows. Rebase an oversized range onto the cells that exist (nothing is lost).
+    let range = XLSX.utils.decode_range(ws["!ref"] || "A1");
+    if(range.e.r >= SHEET_MAX_ROWS || range.e.c >= SHEET_MAX_COLS) range = { s: { r: 0, c: 0 }, e: sheetBounds(ws).e };
     let written = 0, skipped = 0;
     for(const r of rows){
       // only write back rows that came from THIS workbook and sheet

@@ -1276,7 +1276,16 @@ function renderDocs(){
    Page 2 — response workspace
 ================================================================ */
 let rfpText = "";
-let rfpWorkbook = null, rfpFileName = "", rfpMapping = null;
+let rfpWorkbook = null, rfpFileName = "", rfpMapping = null, rfpFingerprint = "";
+/* Identifies a workbook by its bytes. A file name identifies nothing: every bid built on a
+   standard template arrives as "Questionnaire.xlsx". FNV-1a is enough to tell copies
+   apart and, unlike crypto.subtle, also works on a page served over plain http. */
+function fingerprint(buf){
+  const b = new Uint8Array(buf);
+  let h = 0x811c9dc5;
+  for(let i = 0; i < b.length; i++){ h ^= b[i]; h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(16) + "-" + b.length;
+}
 
 $("rfp-upload-btn").onclick = () => $("rfp-file-input").click();
 $("rfp-file-input").addEventListener("change", async e => {
@@ -1286,8 +1295,10 @@ $("rfp-file-input").addEventListener("change", async e => {
     const ext = extOf(f.name);
     if(["xlsx","xls","csv"].includes(ext)){
       if(typeof XLSX === "undefined") throw new Error("The spreadsheet library didn't load (CDN blocked?)");
-      rfpWorkbook = XLSX.read(await f.arrayBuffer(), { type: "array", cellStyles: true });
+      const bytes = await f.arrayBuffer();
+      rfpWorkbook = XLSX.read(bytes, { type: "array", cellStyles: true });
       rfpFileName = f.name;
+      rfpFingerprint = fingerprint(bytes);
       // a new workbook invalidates the previous mapping. Keeping it would point the
       // round-trip export at a sheet/column that belongs to a different file
       rfpMapping = null;
@@ -1418,7 +1429,7 @@ $("map-import").onclick = async () => {
   const grid = sheetGrid(sheet);
   const start = firstDataRow(grid);
   const qc = +$("map-q").value, rc = +$("map-ref").value, ac = +$("map-ans").value;
-  rfpMapping = { sheet, headerRows: start, qCol: qc, refCol: rc, ansCol: ac, file: rfpFileName, truncated: !!grid.truncated };
+  rfpMapping = { sheet, headerRows: start, qCol: qc, refCol: rc, ansCol: ac, file: rfpFileName, fp: rfpFingerprint, truncated: !!grid.truncated };
   if(grid.truncated) toast(`Only the first ${SHEET_MAX_ROWS.toLocaleString()} rows and ${SHEET_MAX_COLS} columns of “${sheet}” were read`, true);
   let added = 0;
   for(let r = start; r < grid.length; r++){
@@ -1426,7 +1437,8 @@ $("map-import").onclick = async () => {
     if(qt.length < 8) continue;
     const ref = rc >= 0 && String(grid[r][rc] || "").trim() ? String(grid[r][rc]).trim() : "Q" + (S.questions.length + 1);
     S.questions.push({ id: uid(), ref, text: qt, type: classify(qt), answer: "", status: "draft",
-                       sources: [], coverage: null, srcSheet: sheet, srcRow: r, srcFile: rfpFileName });
+                       sources: [], coverage: null, srcSheet: sheet, srcRow: r, srcFile: rfpFileName,
+                       srcFp: rfpFingerprint, srcQCol: qc });
     added++;
   }
   renderLedger(); await persistQs();
@@ -2059,10 +2071,27 @@ $("download-btn").onclick = async () => {
     let range = XLSX.utils.decode_range(ws["!ref"] || "A1");
     if(range.e.r >= SHEET_MAX_ROWS || range.e.c >= SHEET_MAX_COLS) range = { s: { r: 0, c: 0 }, e: sheetBounds(ws).e };
     let written = 0, skipped = 0;
+    // Only rows imported from this sheet whose question cell still holds that question.
+    // Rows imported from a different copy of a same-named file (an earlier customer's bid
+    // on the same template) are written only with explicit consent.
+    const norm = s => String(s == null ? "" : s).replace(/\s+/g, " ").trim();
+    const targets = [], otherCopy = [];
     for(const r of rows){
-      // only write back rows that came from THIS workbook and sheet
       if(r.srcSheet !== rfpMapping.sheet || typeof r.srcRow !== "number"){ skipped++; continue; }
       if(r.srcFile && rfpMapping.file && r.srcFile !== rfpMapping.file){ skipped++; continue; }
+      const qCell = ws[XLSX.utils.encode_cell({ r: r.srcRow, c: typeof r.srcQCol === "number" ? r.srcQCol : rfpMapping.qCol })];
+      if(!qCell || norm(qCell.v) !== norm(r.text)){ skipped++; continue; }
+      (r.srcFp && r.srcFp === rfpMapping.fp ? targets : otherCopy).push(r);
+    }
+    if(otherCopy.length && confirm(
+      `${otherCopy.length} answer${otherCopy.length === 1 ? " was" : "s were"} imported from a different copy of ${rfpMapping.file} ` +
+      `(same name and questions, different file: an earlier bid or an edited copy).\n\n` +
+      `Write ${otherCopy.length === 1 ? "it" : "them"} into this workbook too? Cancel writes only the ${targets.length} imported from this copy.`))
+      targets.push(...otherCopy);
+    else skipped += otherCopy.length;
+    if(!targets.length && otherCopy.length)
+      return toast("Nothing was written back: every answer came from a different copy of this workbook", true);
+    for(const r of targets){
       ws[XLSX.utils.encode_cell({ r: r.srcRow, c: rfpMapping.ansCol })] = { t: "s", v: r.answer };
       // grow the used range so the new cells are actually serialised. A cell written
       // outside !ref is silently dropped by the writer

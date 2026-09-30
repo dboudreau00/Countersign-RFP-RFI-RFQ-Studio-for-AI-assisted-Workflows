@@ -164,14 +164,15 @@ function loadKnowledgeBase() {
   reindex();
 }
 
-/* Small alias table so acronym-heavy RFP questions still hit spelled-out docs */
-const ALIASES = {
+/* Small alias table so acronym-heavy RFP questions still hit spelled-out docs. No
+   prototype: a question containing "constructor" must not find Object.prototype's. */
+const ALIASES = Object.assign(Object.create(null), {
   sso: ["single", "sign"], mfa: ["multi", "factor", "authentication"],
   dr: ["disaster", "recovery"], sla: ["service", "level", "uptime"],
   bcp: ["business", "continuity"], iam: ["identity", "access"],
   pii: ["personal", "data"], dpa: ["data", "processing"],
   uptime: ["availability"], pricing: ["price", "cost", "licensing"],
-};
+});
 const expandTerms = (terms) => {
   const out = new Set(terms);
   for (const t of terms) if (ALIASES[t]) for (const a of ALIASES[t]) out.add(a);

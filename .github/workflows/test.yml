@@ -1,0 +1,31 @@
+name: test
+
+# Behaviour checks for engine.js, proxy.js and proxy.php against a local fake of the
+# Anthropic API: default model, token headroom, refusals, team token, allowlist, caps,
+# bind address and document handling. Needs no secrets.
+
+on:
+  push:
+    branches: [main]
+    paths: ["engine.js", "proxy.js", "proxy.php", "test/**", ".github/workflows/test.yml"]
+  pull_request:
+    paths: ["engine.js", "proxy.js", "proxy.php", "test/**", ".github/workflows/test.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  servers:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22, 24]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Engine and proxy behaviour
+        run: node test/servers.js

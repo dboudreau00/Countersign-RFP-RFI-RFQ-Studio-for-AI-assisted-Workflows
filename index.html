@@ -1993,6 +1993,7 @@ $("download-btn").onclick = async () => {
     downloadBlob(new Blob(["\uFEFF" + csv], { type: "text/csv" }), safe + ".csv");
 
   } else if(S.exportFmt === "xlsx"){
+    if(typeof XLSX === "undefined") return toast("The spreadsheet library didn't load (CDN blocked?). Export as CSV instead", true);
     const data = rows.map(r => {
       const o = { Ref: r.ref, Type: QTYPES[r.type] || "Narrative", Question: r.text, Response: r.answer, Status: STAMPS[r.status] };
       if(showSrc) o.Sources = r.sources.join("; ");

@@ -17,6 +17,8 @@
  *
  * Env:
  *   PORT=8790                 listen port
+ *   HOST=127.0.0.1            listen address; any other address requires COUNTERSIGN_TOKEN
+ *                             unless ALLOW_NO_TOKEN=1
  *   KB_DIR=./kb               directory of plain-text sources
  *   DATA_FILE=./countersign-data.json
  *   MODEL=claude-sonnet-5-5   generation model
@@ -34,6 +36,7 @@
  */
 
 const http = require("http");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
@@ -41,6 +44,8 @@ const path = require("path");
 const API_KEY      = process.env.ANTHROPIC_API_KEY || "";
 const TEAM_TOKEN   = process.env.COUNTERSIGN_TOKEN || "";
 const PORT         = parseInt(process.env.PORT || "8790", 10);
+const HOST         = process.env.HOST || "127.0.0.1";
+const ALLOW_NO_TOKEN = process.env.ALLOW_NO_TOKEN === "1";
 const KB_DIR       = process.env.KB_DIR || path.join(__dirname, "kb");
 const DATA_FILE    = process.env.DATA_FILE || path.join(__dirname, "countersign-data.json");
 const MODEL        = process.env.MODEL || "claude-sonnet-5-5";
@@ -307,6 +312,12 @@ function send(res, code, obj) {
 }
 const fail = (res, code, message) => send(res, code, { error: { type: "engine_error", message } });
 
+function tokenOk(given) {
+  const a = Buffer.from(String(given || ""), "utf8");
+  const b = Buffer.from(TEAM_TOKEN, "utf8");
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 const routes = {
   "/answer": async (res, body) => {
     if (typeof body.question !== "string" || body.question.trim().length < 3)
@@ -497,8 +508,12 @@ const server = http.createServer((req, res) => {
   if (req.method !== "POST" || !routes[url]) return fail(res, 404, "Unknown endpoint");
   if (!API_KEY && url !== "/ingest" && url !== "/forget" && url !== "/search")
     return fail(res, 500, "Server not configured: set ANTHROPIC_API_KEY");
-  if (TEAM_TOKEN && req.headers["x-team-token"] !== TEAM_TOKEN)
+  if (TEAM_TOKEN && !tokenOk(req.headers["x-team-token"]))
     return fail(res, 401, "Missing or wrong team token");
+  // A cross-site page can POST text/plain without a CORS preflight. Requiring JSON forces
+  // the preflight, so ALLOW_ORIGIN actually decides who can change the knowledge base.
+  if (!/^application\/json\b/i.test(req.headers["content-type"] || ""))
+    return fail(res, 415, "Send the body as Content-Type: application/json");
 
   let size = 0;
   const chunks = [];
@@ -532,10 +547,16 @@ const server = http.createServer((req, res) => {
 });
 
 if (require.main === module) {
+  const loopback = /^(127\.\d+\.\d+\.\d+|::1|localhost)$/i.test(HOST);
+  if (!loopback && !TEAM_TOKEN && !ALLOW_NO_TOKEN) {
+    console.error(`Refusing to listen on ${HOST} without COUNTERSIGN_TOKEN: anyone who can reach the port ` +
+      "could spend your API key and rewrite the knowledge base. Set COUNTERSIGN_TOKEN, or ALLOW_NO_TOKEN=1 to accept that.");
+    process.exit(1);
+  }
   loadKnowledgeBase();
-  server.listen(PORT, () =>
+  server.listen(PORT, HOST, () =>
     console.log(
-      `Countersign Engine on http://0.0.0.0:${PORT}  ·  ${KB.docs.size} docs / ${KB.chunks.length} chunks` +
+      `Countersign Engine on http://${HOST}:${PORT}  ·  ${KB.docs.size} docs / ${KB.chunks.length} chunks` +
       (TEAM_TOKEN ? "  ·  token required" : "  ·  WARNING: no team token set")
     )
   );

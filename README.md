@@ -126,7 +126,12 @@ PORT=8787 \
 node proxy.js
 ```
 
-Then in the app: **Team server proxy**, URL: `http://yourhost:8787/proxy`.
+`proxy.js` listens on `127.0.0.1` by default, which is what the reverse-proxy setup
+below needs. To accept connections from other machines directly, add `HOST=0.0.0.0`;
+with any non-loopback `HOST` it refuses to start unless `COUNTERSIGN_TOKEN` is set
+(`ALLOW_NO_TOKEN=1` overrides that, for a trusted network only). Then in the app:
+**Team server proxy**, URL: the reverse proxy's address, or `http://yourhost:8787/proxy`
+when it listens on `0.0.0.0`.
 
 > **`proxy.js` speaks plain HTTP. It has no TLS of its own.** For anything other
 > than a localhost trial, put it behind a reverse proxy that terminates HTTPS. This
@@ -146,8 +151,10 @@ Then in the app: **Team server proxy**, URL: `http://yourhost:8787/proxy`.
 
 ### What the proxies enforce
 
-- **POST only**, body parsed as JSON and capped at ~400 KB. (The body must *be*
-  JSON; neither proxy inspects the `Content-Type` header.)
+- **POST only**, body capped at ~400 KB and sent as `Content-Type: application/json`
+  (anything else is a `415`). A page on another site can send a `text/plain` POST
+  without a CORS preflight; requiring JSON forces the preflight, so `ALLOW_ORIGIN`
+  really decides which sites can use the proxy.
 - **Model allowlist** (`claude-sonnet-5-5`, `claude-sonnet-4-6`, `claude-haiku-4-5`
   and its dated ID `claude-haiku-4-5-20251001` by default; edit the array to taste).
   Unknown models are silently replaced with the default (`claude-sonnet-5-5`) rather

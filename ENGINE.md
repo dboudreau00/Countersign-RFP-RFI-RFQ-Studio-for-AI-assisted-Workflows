@@ -26,7 +26,7 @@ rules (compliance answers open with a hard Yes/No/Partially verdict, etc).
 ANTHROPIC_API_KEY=sk-ant-...        \
 COUNTERSIGN_TOKEN=your-passphrase   \
 node engine.js
-# -> Countersign Engine on http://0.0.0.0:8790 · 42 docs / 1187 chunks · token required
+# -> Countersign Engine on http://127.0.0.1:8790 · 42 docs / 1187 chunks · token required
 ```
 
 | Env var | Default | Purpose |
@@ -34,6 +34,8 @@ node engine.js
 | `ANTHROPIC_API_KEY` | none (required for `/answer`, `/batch`, `/proxy`) | Your Anthropic key, server-side only. `/search`, `/ingest` and `/forget` work without it. |
 | `COUNTERSIGN_TOKEN` | *(off)* | Shared secret; all POSTs must send `X-Team-Token` |
 | `PORT` | `8790` | Listen port |
+| `HOST` | `127.0.0.1` | Listen address. Any non-loopback address (for example `0.0.0.0`) makes the engine refuse to start without `COUNTERSIGN_TOKEN`. |
+| `ALLOW_NO_TOKEN` | *(off)* | Set to `1` to run on a non-loopback `HOST` without a token. Only on a network you trust. |
 | `KB_DIR` | `<engine.js dir>/kb` | Directory of `.txt/.md/.csv/.json` sources |
 | `DATA_FILE` | `<engine.js dir>/countersign-data.json` | Workspace exported from the web app |
 | `MODEL` | `claude-sonnet-5-5` | Generation model. Set `MODEL=claude-sonnet-4-6` to keep the previous default. |
@@ -57,7 +59,8 @@ Three ways, freely combined; everything is indexed together at boot:
 
 ## API
 
-All POST bodies are JSON. When a team token is configured, send it as the
+All POST bodies are JSON and must be sent as `Content-Type: application/json`
+(anything else is a `415`). When a team token is configured, send it as the
 `X-Team-Token` header on every POST.
 
 ### `GET /health`
@@ -256,10 +259,11 @@ $result = json_decode(curl_exec($ch), true);
 - Set `COUNTERSIGN_TOKEN` and a specific `ALLOW_ORIGIN`; serve behind HTTPS
   (reverse-proxy with nginx/Caddy; the engine itself speaks plain HTTP).
   **`COUNTERSIGN_TOKEN` is the only access control there is**, and `/ingest` and
-  `/forget` work without an API key: with the defaults (`TEAM_TOKEN` off,
-  `ALLOW_ORIGIN: *`, listening on `0.0.0.0`) anyone who can reach the port can add
-  documents to your knowledge base or delete them. Set the token before exposing
-  the port, and bind it to localhost behind the reverse proxy.
+  `/forget` work without an API key. The engine therefore listens on `127.0.0.1`
+  unless `HOST` says otherwise, and on any other address it will not start without
+  `COUNTERSIGN_TOKEN`. Keep the default and let the reverse proxy reach it locally.
+  Browsers must send JSON, which forces a CORS preflight, so a restrictive
+  `ALLOW_ORIGIN` also stops other sites from calling it from a visitor's browser.
 - The engine holds the whole index in memory: a full 60 MB knowledge base is
   roughly 55k chunks and retrieval stays well under 100 ms, but budget RAM
   accordingly (about 3 to 4 times the raw text size).

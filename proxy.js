@@ -9,6 +9,8 @@
  *
  * Optional env:
  *   PORT=8787                     listen port (default 8787)
+ *   HOST=127.0.0.1                listen address; any other address requires
+ *                                 COUNTERSIGN_TOKEN unless ALLOW_NO_TOKEN=1
  *   COUNTERSIGN_TOKEN=secret      shared team passphrase (recommended)
  *   ALLOW_ORIGIN=https://you.com  CORS origin if the HTML is served from a
  *                                 different host/port than this proxy
@@ -24,6 +26,8 @@ const crypto = require("crypto");
 const API_KEY        = process.env.ANTHROPIC_API_KEY || "";
 const TEAM_TOKEN     = process.env.COUNTERSIGN_TOKEN || "";
 const PORT           = parseInt(process.env.PORT || "8787", 10);
+const HOST           = process.env.HOST || "127.0.0.1";
+const ALLOW_NO_TOKEN = process.env.ALLOW_NO_TOKEN === "1";
 const ALLOW_ORIGIN   = process.env.ALLOW_ORIGIN || "*";
 const ALLOWED_MODELS = ["claude-sonnet-5-5", "claude-sonnet-4-6", "claude-haiku-4-5", "claude-haiku-4-5-20251001"];
 const DEFAULT_MODEL  = "claude-sonnet-5-5";
@@ -71,6 +75,9 @@ const server = http.createServer((req, res) => {
   if (!API_KEY) return fail(res, 500, "Server not configured: set ANTHROPIC_API_KEY");
   if (TEAM_TOKEN && !tokenOk(req.headers["x-team-token"]))
     return fail(res, 401, "Missing or wrong team token");
+  // text/plain needs no CORS preflight; requiring JSON makes ALLOW_ORIGIN meaningful
+  if (!/^application\/json\b/i.test(req.headers["content-type"] || ""))
+    return fail(res, 415, "Send the body as Content-Type: application/json");
 
   let size = 0;
   const chunks = [];
@@ -120,9 +127,15 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () =>
+const loopback = /^(127\.\d+\.\d+\.\d+|::1|localhost)$/i.test(HOST);
+if (!loopback && !TEAM_TOKEN && !ALLOW_NO_TOKEN) {
+  console.error(`Refusing to listen on ${HOST} without COUNTERSIGN_TOKEN: anyone who can reach the port ` +
+    "could spend your API key. Set COUNTERSIGN_TOKEN, or ALLOW_NO_TOKEN=1 to accept that.");
+  process.exit(1);
+}
+server.listen(PORT, HOST, () =>
   console.log(
-    `Countersign proxy on http://0.0.0.0:${PORT}/proxy` +
+    `Countersign proxy on http://${HOST}:${PORT}/proxy` +
     (TEAM_TOKEN ? " (team token required)" : " (WARNING: no team token set)")
   )
 );

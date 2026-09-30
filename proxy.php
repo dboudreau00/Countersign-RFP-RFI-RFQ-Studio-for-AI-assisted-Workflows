@@ -58,6 +58,9 @@ if ($TEAM_TOKEN !== '') {
     $sent = $_SERVER['HTTP_X_TEAM_TOKEN'] ?? '';
     if (!hash_equals($TEAM_TOKEN, $sent)) fail(401, 'Missing or wrong team token');
 }
+// A cross-site page can POST text/plain without a CORS preflight; requiring JSON forces one.
+if (stripos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== 0)
+    fail(415, 'Send the body as Content-Type: application/json');
 
 $raw = file_get_contents('php://input', false, null, 0, $MAX_BODY_BYTES + 1);
 if ($raw === false || strlen($raw) === 0) fail(400, 'Empty body');

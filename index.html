@@ -1043,6 +1043,18 @@ async function providerError(label, r){
   return new Error(label + " " + r.status + (detail ? ": " + detail : ""));
 }
 const RETRYABLE = (s) => s === 408 || s === 429 || s >= 500;
+/* A provider that accepts the connection and never answers would leave the question on
+   "Working" for good. Give up after a bound generous enough for a long extraction on a
+   thinking model, and let askAI retry once as it does for a 5xx. */
+const PROVIDER_TIMEOUT_MS = 180000;
+async function providerFetch(url, init){
+  try{ return await fetch(url, { ...init, signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) }); }
+  catch(err){
+    if(err && err.name === "TimeoutError")
+      throw Object.assign(new Error("The provider did not answer within " + PROVIDER_TIMEOUT_MS / 1000 + " seconds"), { retryable: true });
+    throw err;
+  }
+}
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 /* One automatic retry on rate-limit/overload, matching what engine.js does for /batch.
@@ -1096,7 +1108,7 @@ async function askAIOnce(prompt, opts){
       headers["anthropic-dangerous-direct-browser-access"] = "true";
     }
     const byKey = p.provider === "claude-key";
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
+    const r = await providerFetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -1110,7 +1122,7 @@ async function askAIOnce(prompt, opts){
   }
   if(p.provider === "engine"){
     if(!engineBase()) throw new Error("Set the engine URL in AI settings");
-    const r = await fetch(engineBase() + "/proxy", {
+    const r = await providerFetch(engineBase() + "/proxy", {
       method: "POST", headers: engineHeaders(),
       body: JSON.stringify({ model: DEFAULT_CLAUDE_MODEL, max_tokens: claudeTokens(maxTokens), messages: [{ role: "user", content: prompt }] })
     });
@@ -1121,7 +1133,7 @@ async function askAIOnce(prompt, opts){
     const url = p.base || "proxy.php";
     const headers = { "Content-Type": "application/json" };
     if(p.key) headers["X-Team-Token"] = p.key;   // key field doubles as the team token here
-    const r = await fetch(url, {
+    const r = await providerFetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -1137,7 +1149,7 @@ async function askAIOnce(prompt, opts){
     if(!p.key) throw new Error("Add your Gemini API key in AI settings");
     const model = p.model || DEFAULT_GEMINI_MODEL;
     // key goes in a header, not the query string: URLs end up in history, referrers and proxy logs
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    const r = await providerFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-goog-api-key": p.key },
       body: JSON.stringify({
@@ -1156,7 +1168,7 @@ async function askAIOnce(prompt, opts){
   // openai-compatible
   if(!p.key) throw new Error("Add your API key in AI settings");
   const base = (p.base || "https://api.openai.com/v1").replace(/\/$/,"");
-  const r = await fetch(base + "/chat/completions", {
+  const r = await providerFetch(base + "/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + p.key },
     body: JSON.stringify({

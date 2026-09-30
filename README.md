@@ -81,6 +81,11 @@ Details, metric definitions and how to add cases: [`eval/README.md`](eval/README
    overwritten: they pull it manually with **⟳ Load from site directory**, which
    asks for confirmation first because importing replaces the whole workspace.
 
+> A workspace file imported with **Import workspace file** only carries documents,
+> questions and answer-length targets. The team proxy or engine URL and the model are
+> taken only from the `countersign-data.json` next to the page, so a file received from
+> someone else cannot redirect your key or your prompts to another server.
+
 > The auto-load runs only when browser storage is empty. Once someone has a bucket
 > or a ledger saved locally, re-uploading the file does **not** reach them until
 > they press **⟳ Load from site directory**.

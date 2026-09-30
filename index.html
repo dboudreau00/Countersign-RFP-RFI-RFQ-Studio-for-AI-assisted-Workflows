@@ -2193,15 +2193,24 @@ async function importWorkspace(obj, sourceLabel, opts){
                  name: String(d.name || "document"), type: String(d.type || "txt"),
                  size: +d.size || 0, chars: d.text.length }));
   if(Array.isArray(obj.questions)) S.questions = obj.questions.map(normaliseQuestion);
-  if(obj.settings && obj.settings.lengths){
-    S.settings = { ...S.settings, ...obj.settings,
-                   key: S.settings.key,
-                   provider: S.settings.provider,
-                   // the file's model belongs to the file's provider. Adopting it while
-                   // keeping the local provider produces an impossible pairing
-                   // (e.g. provider "gemini" with model "claude-sonnet-4-6")
-                   model: (obj.settings.provider === S.settings.provider) ? (obj.settings.model || "") : S.settings.model,
-                   base: S.settings.base || obj.settings.base || "" };
+  if(obj.settings && obj.settings.lengths && typeof obj.settings.lengths === "object"){
+    // A workspace file is data, not configuration: only the word targets are taken from it.
+    // Adopting its endpoint would send the session key and every prompt to a host the
+    // file names, so base and model come only from the directory file next to this page,
+    // which is exactly as trusted as the page itself.
+    const lengths = { ...S.settings.lengths };
+    for(const t of Object.keys(QTYPES)){
+      const n = parseInt(obj.settings.lengths[t], 10);
+      if(Number.isFinite(n) && n > 0 && n <= 2000) lengths[t] = n;
+    }
+    S.settings.lengths = lengths;
+    if(opts && opts.trusted){
+      if(!S.settings.base && typeof obj.settings.base === "string") S.settings.base = obj.settings.base;
+      // the file's model belongs to the file's provider; adopting it for another
+      // provider produces an impossible pairing (provider "gemini", model "claude-...")
+      if(obj.settings.provider === S.settings.provider && typeof obj.settings.model === "string")
+        S.settings.model = obj.settings.model;
+    }
   }
   renderDocs(); renderLedger();
   await persistDocs(); await persistQs();
@@ -2215,7 +2224,7 @@ async function fetchDirectoryFile(manual){
     const ct = r.headers.get("content-type") || "";
     const obj = ct.includes("json") ? await r.json() : JSON.parse(await r.text());
     // only claim the file was loaded if the import actually went through
-    if(await importWorkspace(obj, "site directory"))
+    if(await importWorkspace(obj, "site directory", { trusted: true }))
       $("ws-note").textContent = "countersign-data.json loaded from this directory";
   }catch(err){
     if(manual) toast("No countersign-data.json found next to this page (" + err.message + ")", true);

@@ -664,14 +664,15 @@ const QTYPES = { compliance:"Compliance", technical:"Technical", narrative:"Narr
 /* Anything interpolated into markup must be either escaped or constrained to a known
    value. Question/document records can arrive from an imported or site-hosted
    countersign-data.json, so their ids, types and statuses are untrusted input. */
-const safeType = (t) => (QTYPES[t] ? t : "narrative");
-const safeStatus = (s) => (STAMPS && STAMPS[s] ? s : "draft");
+// own keys only: "constructor" or "toString" would otherwise pass as a known value
+const safeType = (t) => (Object.hasOwn(QTYPES, t) ? t : "narrative");
+const safeStatus = (s) => (STAMPS && Object.hasOwn(STAMPS, s) ? s : "draft");
 /* Word targets are also interpolated into markup and into prompts, and they can come
    from an imported workspace file, so they must be numbers within a sane range. */
 const DEFAULT_LENGTHS = { compliance:80, technical:250, narrative:220, commercial:150 };
 function safeLen(type){
   const n = parseInt(S.settings.lengths && S.settings.lengths[type], 10);
-  return Number.isFinite(n) && n > 0 && n <= 2000 ? n : DEFAULT_LENGTHS[type] || 220;
+  return Number.isFinite(n) && n > 0 && n <= 2000 ? n : (Object.hasOwn(DEFAULT_LENGTHS, type) ? DEFAULT_LENGTHS[type] : 220);
 }
 function classify(text){
   const t = text.toLowerCase().trim();
@@ -1436,7 +1437,7 @@ ${source.slice(0, 55000)}`, { maxTokens: EXTRACT_TOKENS });
       if(!it || !it.q) continue;
       const qtext = String(it.q);
       S.questions.push({ id: uid(), ref: String(it.ref || "Q" + (S.questions.length+1)), text: qtext,
-        type: QTYPES[it.type] ? it.type : classify(qtext),
+        type: Object.hasOwn(QTYPES, it.type) ? it.type : classify(qtext),
         answer: "", status: "draft", sources: [], coverage: null });
       added++;
     }
@@ -2165,7 +2166,7 @@ function normaliseQuestion(q){
     id: (q && typeof q.id === "string" && q.id) ? q.id : uid(),
     ref: String((q && q.ref) || "Q"),
     text,
-    type: QTYPES[q && q.type] ? q.type : classify(text),
+    type: Object.hasOwn(QTYPES, q && q.type) ? q.type : classify(text),
     answer: typeof (q && q.answer) === "string" ? q.answer : "",
     status: safeStatus(q && q.status === "working" ? "generated" : (q && q.status)),
     sources: Array.isArray(q && q.sources) ? q.sources.map(String) : [],

@@ -49,6 +49,7 @@ Details, metric definitions and how to add cases: [`eval/README.md`](eval/README
 | `countersign-data.json` | Optional "directory file": an exported workspace the app auto-loads. You create this from inside the app. |
 | `kb/` | Plain-text knowledge base folder for `engine.js` (see `kb/README.txt`). |
 | `eval/` | Evaluation harness for the engine: held-out question set, retrieval and groundedness metrics, CI drift canary. See `eval/README.md`. |
+| `test/` | Behaviour checks for `engine.js`, `proxy.js` and `proxy.php` against a local fake of the Anthropic API. Run `node test/servers.js`; CI runs it on Node 18 to 24. |
 
 ## Quick start (no server code at all)
 

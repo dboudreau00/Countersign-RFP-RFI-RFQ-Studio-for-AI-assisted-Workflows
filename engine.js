@@ -101,22 +101,30 @@ const termFreqs = (s) => {
 };
 
 // files: document key -> the kb/ file that backs it (documents from DATA_FILE have none)
-const KB = { docs: new Map(), files: new Map(), chunks: [], df: Object.create(null), idf: Object.create(null) };
+const KB = { docs: new Map(), files: new Map(), chunks: [], df: Object.create(null) };
 
+/* The index is updated per document, so pushing a bucket of n documents costs n
+   document-sized updates rather than n rebuilds of everything (which blocked every
+   other request for minutes on a large bucket). idf is derived from df at query time. */
+function indexDoc(name, text) {
+  for (let i = 0; i < text.length; i += CHUNK_SIZE) {
+    const t = text.slice(i, i + CHUNK_SIZE + 200);
+    const tf = termFreqs(t);
+    KB.chunks.push({ doc: name, text: t, tf });
+    for (const term in tf) KB.df[term] = (KB.df[term] || 0) + 1;
+  }
+}
+function unindexDoc(name) {
+  KB.chunks = KB.chunks.filter((ch) => {
+    if (ch.doc !== name) return true;
+    for (const term in ch.tf) if (--KB.df[term] === 0) delete KB.df[term];
+    return false;
+  });
+}
 function reindex() {
   KB.chunks = [];
   KB.df = Object.create(null);
-  for (const [name, text] of KB.docs) {
-    for (let i = 0; i < text.length; i += CHUNK_SIZE) {
-      const t = text.slice(i, i + CHUNK_SIZE + 200);
-      const tf = termFreqs(t);
-      KB.chunks.push({ doc: name, text: t, tf });
-      for (const term in tf) KB.df[term] = (KB.df[term] || 0) + 1;
-    }
-  }
-  const N = Math.max(1, KB.chunks.length);
-  KB.idf = Object.create(null);
-  for (const term in KB.df) KB.idf[term] = Math.log(1 + N / KB.df[term]);
+  for (const [name, text] of KB.docs) indexDoc(name, text);
   console.log(`[kb] indexed ${KB.docs.size} docs -> ${KB.chunks.length} chunks`);
 }
 
@@ -210,10 +218,13 @@ function retrieve(question, budget = CONTEXT_BUDGET) {
   const rawTerms = tokenize(question);
   const askedTerms = [...new Set(rawTerms.map(stem))];
   const qTerms = [...new Set(expandTerms(rawTerms).map(stem))];
+  const N = Math.max(1, KB.chunks.length);
+  const idf = Object.create(null);
+  for (const t of qTerms) idf[t] = KB.df[t] ? Math.log(1 + N / KB.df[t]) : 1;
   const scored = [];
   for (const ch of KB.chunks) {
     let score = 0;
-    for (const t of qTerms) if (ch.tf[t]) score += ch.tf[t] * (KB.idf[t] || 1);
+    for (const t of qTerms) if (ch.tf[t]) score += ch.tf[t] * idf[t];
     if (score > 0) scored.push({ score, ch });
   }
   scored.sort((a, b) => b.score - a.score);
@@ -378,7 +389,8 @@ const routes = {
       return fail(res, 400, "Provide { name: string, text: string } (parse binary formats client-side or via the web app)");
     const stored = addDoc(body.name, body.text, true);
     if (!stored) return fail(res, 400, "Document text is empty");
-    reindex();
+    for (const name of [stored.key, ...stored.superseded]) unindexDoc(name);
+    indexDoc(stored.key, KB.docs.get(stored.key));
     // report truncation and persistence honestly — a silent ok:true here means the
     // caller believes the whole document is indexed and will survive a restart
     send(res, 200, {
@@ -408,7 +420,7 @@ const routes = {
       try { fs.unlinkSync(path.join(KB_DIR, file)); removedFile = true; } catch (e) {}
       KB.files.delete(key);
     }
-    reindex();
+    unindexDoc(key);
     send(res, 200, { ok: true, name: key, docs: KB.docs.size, file_removed: removedFile });
   },
 
@@ -582,5 +594,5 @@ if (require.main === module) {
 } else {
   // Required as a module (the eval harness does this): expose the pipeline without
   // touching the filesystem or opening a port. Callers load their own knowledge base.
-  module.exports = { KB, addDoc, reindex, retrieve, buildPrompt, callClaude, answerText, tokenize, stem, STOP, MODEL, CHUNK_SIZE, ANSWER_MAX_TOKENS };
+  module.exports = { KB, addDoc, reindex, indexDoc, unindexDoc, retrieve, buildPrompt, callClaude, answerText, tokenize, stem, STOP, MODEL, CHUNK_SIZE, ANSWER_MAX_TOKENS };
 }

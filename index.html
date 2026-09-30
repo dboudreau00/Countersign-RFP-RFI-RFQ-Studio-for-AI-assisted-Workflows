@@ -1735,7 +1735,13 @@ function renderLedger(openIds){
     t.onchange = () => {
       const q = S.questions.find(x => x.id === t.dataset.ans);
       q.answer = t.value;
-      if(q.status === "draft" && t.value) q.status = "generated";
+      if(q.status === "draft" && t.value){
+        q.status = "generated";
+        // update the stamp in place: a full re-render here would swallow the click
+        // that moved focus out of the box (a blur fires change before click)
+        const stamp = t.closest(".q-row").querySelector(".stamp");
+        if(stamp){ stamp.className = "stamp generated"; stamp.textContent = STAMPS.generated; }
+      }
       persistQs(); renderExport();
     };
   });

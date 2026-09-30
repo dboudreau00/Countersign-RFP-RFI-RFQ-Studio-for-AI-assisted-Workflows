@@ -6,10 +6,9 @@
 <title>Countersign: RFP Response Studio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.13.0/mammoth.browser.min.js" integrity="sha384-8NWE3bZDrmRI4IePMoQaEoLhAQ1MmRMJkdNgnGiHRFanTqsFKr0TmK6aSZvFJ/PO" crossorigin="anonymous"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@9.8.1/dist/index.iife.js" integrity="sha384-VG7nNHhMlezbK+XRucsDQymGisKRncnWqwFcAe+MAHxdR+d/6Brmvux2OlSb8je3" crossorigin="anonymous"></script>
 <style>
 :root{
   --paper:#F3F3ED;
@@ -606,13 +605,51 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
    leaving a page with no event handlers bound and no error on screen. Degrade instead:
    the app keeps working for every format whose library did load. */
 const MISSING_LIBS = [];
-if (typeof pdfjsLib !== "undefined")
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-else MISSING_LIBS.push("PDF (pdf.js)");
 if (typeof mammoth === "undefined") MISSING_LIBS.push("DOCX reading (mammoth)");
 if (typeof XLSX === "undefined") MISSING_LIBS.push("XLSX/CSV (SheetJS)");
 if (typeof docx === "undefined") MISSING_LIBS.push("DOCX export (docx)");
+
+/* pdf.js has shipped only as ES modules since v4, so it is imported on first use. import()
+   takes no integrity attribute: both files are fetched with SRI and imported from blob URLs.
+   The legacy build is the one that supports the browsers procurement teams actually run. */
+const PDFJS = {
+  lib: "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/legacy/build/pdf.min.mjs",
+  libSri: "sha384-5NjcDwbJzXhI7QGdIeL4gC2aaEUnzbpPCN461DegG6G/1ym8f1MBJQpAjcXNOi5s",
+  worker: "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/legacy/build/pdf.worker.min.mjs",
+  workerSri: "sha384-2elss7Fc57S3C8hPKJxxGbtpWJRNsg0VWJqPR6PSSaIetveaFPnpIRIGVSml+d5+"
+};
+async function blobModule(url, integrity){
+  const res = await fetch(url, { integrity, mode: "cors", credentials: "omit" });
+  if(!res.ok) throw new Error("HTTP " + res.status + " loading " + url);
+  return URL.createObjectURL(new Blob([await res.arrayBuffer()], { type: "text/javascript" }));
+}
+let pdfjsPromise = null;
+function loadPdfjs(){
+  if(!pdfjsPromise){
+    pdfjsPromise = (async () => {
+      const [libUrl, workerUrl] = await Promise.all([
+        blobModule(PDFJS.lib, PDFJS.libSri), blobModule(PDFJS.worker, PDFJS.workerSri)
+      ]);
+      const lib = await import(libUrl);
+      lib.GlobalWorkerOptions.workerSrc = workerUrl;
+      return lib;
+    })().catch(err => { pdfjsPromise = null; throw err; });
+  }
+  return pdfjsPromise;
+}
+/* page.getTextContent() async-iterates a ReadableStream, which Safari before 27 cannot do. */
+async function pdfPageText(page){
+  const reader = page.streamTextContent().getReader();
+  const strs = [];
+  try{
+    for(;;){
+      const { done, value } = await reader.read();
+      if(done) break;
+      for(const item of value.items) strs.push(item.str);
+    }
+  }finally{ reader.releaseLock(); }
+  return strs.join(" ");
+}
 
 const APP_VERSION = "1.0.0";
 const S = {
@@ -787,15 +824,16 @@ async function parseFile(file){
   let text = "";
   const needLib = (ok, what) => { if(!ok) throw new Error(what + " library didn't load (CDN blocked?). Convert this file to .txt and retry"); };
   if(ext === "pdf"){
-    needLib(typeof pdfjsLib !== "undefined", "The PDF");
-    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-    const parts = [];
-    for(let p = 1; p <= pdf.numPages; p++){
-      const page = await pdf.getPage(p);
-      const tc = await page.getTextContent();
-      parts.push(tc.items.map(i => i.str).join(" "));
-    }
-    text = parts.join("\n\n");
+    let pdfjs = null;
+    try{ pdfjs = await loadPdfjs(); }catch(e){}   // the browser logs the cause (network, SRI)
+    needLib(!!pdfjs, "The PDF");
+    const task = pdfjs.getDocument({ data: buf });   // transfers buf; do not reuse it
+    try{
+      const pdf = await task.promise;
+      const parts = [];
+      for(let p = 1; p <= pdf.numPages; p++) parts.push(await pdfPageText(await pdf.getPage(p)));
+      text = parts.join("\n\n");
+    }finally{ task.destroy().catch(() => {}); }   // each document otherwise keeps its worker alive
   } else if(ext === "docx"){
     needLib(typeof mammoth !== "undefined", "The DOCX");
     const res = await mammoth.extractRawText({ arrayBuffer: buf });

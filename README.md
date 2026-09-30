@@ -198,7 +198,7 @@ so the message itself usually names the fix.
 | Team token is empty after a page reload | Keys and tokens are held in memory for the session only and are never persisted. Re-enter it in **⚙ AI settings** after a reload. |
 | Browser storage quota errors with a huge bucket | localStorage is about 5 to 10 MB in most browsers. Keep the master bucket in `countersign-data.json` and pull it with **⟳ Load from site directory** rather than relying on local persistence. |
 | `413 Request too large` from the proxy | A single question pulled a very large context. Raise `MAX_BODY_BYTES` in the proxy if you've raised the app's retrieval budget. |
-| "Some libraries didn't load" on open | A CDN is blocked. The app still runs; the affected formats (PDF/DOCX/XLSX parsing, DOCX export) are unavailable until the CDN is reachable. |
+| "Some libraries didn't load" on open, or "The PDF library didn't load" when adding a PDF | A CDN is blocked. The parsers come from `cdnjs.cloudflare.com` (mammoth), `cdn.jsdelivr.net` (pdf.js, docx) and `cdn.sheetjs.com` (SheetJS), each pinned by an integrity hash, so a proxy that rewrites them also blocks them. The app still runs; the affected formats are unavailable until the CDN is reachable. |
 
 ## Deployment layout (typical cPanel)
 

@@ -56,7 +56,8 @@ Details, metric definitions and how to add cases: [`eval/README.md`](eval/README
 2. Open it in a browser. Work persists in each visitor's browser storage (localStorage).
 3. Each user opens **⚙ AI settings** and picks a provider:
    - **Claude (your Anthropic API key)** — paste a key from console.anthropic.com
-     (defaults to `claude-sonnet-4-6`)
+     (defaults to `claude-sonnet-5-5`; type `claude-sonnet-4-6` in the Model field
+     to keep the previous default)
    - **Google Gemini** — paste a Gemini key (defaults to `gemini-flash-latest`)
    - **OpenAI-compatible / Copilot endpoint** — base URL + key
 4. Optional: toggle **◐ Dark mode** in the sidebar (follows OS preference by default).
@@ -142,13 +143,15 @@ Then in the app: **Team server proxy**, URL: `http://yourhost:8787/proxy`.
 
 - **POST only**, body parsed as JSON and capped at ~400 KB. (The body must *be*
   JSON; neither proxy inspects the `Content-Type` header.)
-- **Model allowlist** (`claude-sonnet-4-6`, `claude-haiku-4-5-20251001` by
-  default — edit the array to taste). Unknown models are silently replaced
-  with the default rather than rejected, so the app keeps working.
-- **`max_tokens` ceiling** of 8192 regardless of what the client sends. This has
-  to stay above what the app asks for on its largest call — "Extract questions"
-  returns a JSON array of up to 40 items, and a tighter ceiling truncates that
-  JSON mid-array.
+- **Model allowlist** (`claude-sonnet-5-5`, `claude-sonnet-4-6`, `claude-haiku-4-5`
+  and its dated ID `claude-haiku-4-5-20251001` by default; edit the array to taste).
+  Unknown models are silently replaced with the default (`claude-sonnet-5-5`) rather
+  than rejected, so the app keeps working.
+- **`max_tokens` ceiling** of 16384 regardless of what the client sends. This has
+  to stay above what the app asks for on its largest call: "Extract questions"
+  returns a JSON array of up to 40 items, current Claude models spend part of the
+  budget thinking before they write, and a tighter ceiling truncates that JSON
+  mid-array.
 - **Team token** check via the `X-Team-Token` header when configured, compared
   in constant time.
 - Unknown fields are stripped before forwarding; only `model`, `max_tokens`,
@@ -185,6 +188,7 @@ so the message itself usually names the fix.
 | `Proxy (check the team token) 401 — …` | Token in AI settings doesn't match the server's `COUNTERSIGN_TOKEN`. |
 | `Proxy 500 — Server not configured: set ANTHROPIC_API_KEY` | The key isn't set on the server. |
 | `Claude API (check your API key) 401 — …` | Bad/expired key in "Claude (your API key)" mode. |
+| "Claude declined this request (…)" | The model's safety classifier refused that question (the category is in brackets). Reword the question, or set another model such as `claude-sonnet-4-6` in AI settings. The question is marked **Failed**, never saved as an empty answer. |
 | `Gemini API (unknown model "…") 404 — …` | The model name in AI settings no longer exists. Clear the field to use the current default, or set a model from `GET https://generativelanguage.googleapis.com/v1beta/models`. |
 | `Gemini API 429 — You exceeded your current quota` | Free-tier rate limit. Wait, switch model, or enable billing. The app already retries once automatically. |
 | `Engine 401 / 404 / 500 — …` | Countersign Engine provider: check the URL, the team token, and that `engine.js` is running (**⟲ Check engine** on page 1 reports its status). |

@@ -36,7 +36,7 @@ node engine.js
 | `PORT` | `8790` | Listen port |
 | `KB_DIR` | `<engine.js dir>/kb` | Directory of `.txt/.md/.csv/.json` sources |
 | `DATA_FILE` | `<engine.js dir>/countersign-data.json` | Workspace exported from the web app |
-| `MODEL` | `claude-sonnet-4-6` | Generation model |
+| `MODEL` | `claude-sonnet-5-5` | Generation model. Set `MODEL=claude-sonnet-4-6` to keep the previous default. |
 | `ALLOW_ORIGIN` | `*` | CORS origin for browser callers — tighten in production |
 | `CONCURRENCY` | `2` | Parallel upstream calls for `/batch` (max 4) |
 
@@ -62,7 +62,7 @@ All POST bodies are JSON. When a team token is configured, send it as the
 
 ### `GET /health`
 ```json
-{ "ok": true, "docs": 42, "chunks": 1187, "model": "claude-sonnet-4-6", "token_required": true }
+{ "ok": true, "docs": 42, "chunks": 1187, "model": "claude-sonnet-5-5", "token_required": true }
 ```
 
 ### `POST /answer` — the main event
@@ -83,7 +83,7 @@ Response:
   "coverage": 0.82,
   "chunks_used": 4,
   "missing_terms": [],
-  "model": "claude-sonnet-4-6"
+  "model": "claude-sonnet-5-5"
 }
 ```
 `coverage` (0–1) estimates how well the knowledge base substantiates the
@@ -94,6 +94,12 @@ retriever found. `missing_terms` lists the query concepts found nowhere in the K
 — a low-coverage answer with many missing terms is your cue to add documentation
 rather than trust the output. Common RFP verbiage ("confirm", "whether",
 "outline", "state") is filtered out, so what remains is topical.
+
+An answer is never returned empty. If the model declines the question
+(`stop_reason: "refusal"`) or produces no text, `/answer` responds `502` with the
+reason in `error.message` (for a refusal it includes the category, for example
+`Model declined to answer (cyber)`), and in `/batch` that question arrives as an
+`error` line.
 
 ### `POST /search` — retrieval only, no AI call
 ```json
@@ -128,7 +134,7 @@ Per-item `type`/`tone`/`max_words` override the batch-level values. Optional
 
 Stream (`Content-Type: application/x-ndjson`), one line per event:
 ```
-{"kind":"start","total":3,"model":"claude-sonnet-4-6","concurrency":2}
+{"kind":"start","total":3,"model":"claude-sonnet-5-5","concurrency":2}
 {"kind":"answer","index":1,"ref":"3.2","answer":"All customer data is encrypted at rest...","sources":["security.txt"],"coverage":0.81,"chunks_used":4,"missing_terms":[],"ms":2140}
 {"kind":"answer","index":0,"ref":"3.1","answer":"Yes. Our platform supports SAML 2.0...","sources":["sso-guide.pdf"],"coverage":0.77,"chunks_used":3,"missing_terms":[],"ms":2610}
 {"kind":"error","index":2,"ref":"7.4","status":429,"message":"Upstream 429 — rate limited"}
@@ -209,7 +215,7 @@ never removes a same-named file belonging to a different document:
 ### `POST /proxy`
 Raw Anthropic `/v1/messages` pass-through. Only `messages` and `system` are
 forwarded: the model is always the engine's own `MODEL` (the client's `model`
-field is ignored, not allowlisted) and `max_tokens` is capped at 8192. This makes
+field is ignored, not allowlisted) and `max_tokens` is capped at 16384. This makes
 the engine a drop-in replacement for `proxy.js`: point the web app's **Team
 server proxy** at `http://host:8790/proxy` and you only run one server for both
 the app and the engine.

@@ -17,12 +17,13 @@
 // ---------------- configuration ----------------
 $API_KEY        = getenv('ANTHROPIC_API_KEY') ?: 'sk-ant-REPLACE_ME';
 $TEAM_TOKEN     = getenv('COUNTERSIGN_TOKEN') ?: '';       // '' = disabled (not recommended on public URLs)
-$ALLOWED_MODELS = ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001'];
-$DEFAULT_MODEL  = 'claude-sonnet-4-6';
+$ALLOWED_MODELS = ['claude-sonnet-5-5', 'claude-sonnet-4-6', 'claude-haiku-4-5', 'claude-haiku-4-5-20251001'];
+$DEFAULT_MODEL  = 'claude-sonnet-5-5';
 // Hard ceiling regardless of what the client asks for. Must stay above what the app
 // requests on its largest call ("Extract questions" returns a JSON array of up to 40
-// items); the previous 1024 ceiling silently truncated that JSON mid-array.
-$MAX_TOKENS_CAP = 8192;
+// items, and thinking tokens count against the cap); the previous 1024 ceiling
+// silently truncated that JSON mid-array.
+$MAX_TOKENS_CAP = 16384;
 $MAX_BODY_BYTES = 400000;    // ~400 KB — plenty for prompt + retrieved context
 // ------------------------------------------------
 

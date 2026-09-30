@@ -974,7 +974,24 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
    A single transient 429/503 in a 40-question run otherwise marks that answer failed. */
 const ANSWER_TOKENS  = 1000;
 const EXTRACT_TOKENS = 8000;   // a 40-item JSON array does not fit in 1000
-const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
+const DEFAULT_CLAUDE_MODEL = "claude-sonnet-5-5";
+// The keyless provider only runs inside Claude.ai, which decides what it accepts;
+// keep it on the model it was verified with.
+const BUILTIN_CLAUDE_MODEL = "claude-sonnet-4-6";
+// Current Claude models think before answering and thinking counts against
+// max_tokens; without headroom an answer-sized cap can end with no text at all.
+const CLAUDE_THINKING_HEADROOM = 8192;
+const claudeTokens = (n) => Math.min(n + CLAUDE_THINKING_HEADROOM, 16384);
+function claudeText(data){
+  if(data.stop_reason === "refusal"){
+    const cat = data.stop_details && data.stop_details.category;
+    throw new Error("Claude declined this request" + (cat ? " (" + cat + ")" : "") + ". Rephrase the question or choose another model in AI settings");
+  }
+  const text = (data.content || []).map(b => b.type === "text" ? b.text : "").join("");
+  if(!text.trim() && data.stop_reason === "max_tokens")
+    throw new Error("The model used its whole output budget before writing an answer");
+  return text;
+}
 const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
 const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 
@@ -1003,28 +1020,27 @@ async function askAIOnce(prompt, opts){
       headers["anthropic-version"] = "2023-06-01";
       headers["anthropic-dangerous-direct-browser-access"] = "true";
     }
+    const byKey = p.provider === "claude-key";
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers,
       body: JSON.stringify({
-        model: p.provider === "claude-key" ? (p.model || DEFAULT_CLAUDE_MODEL) : DEFAULT_CLAUDE_MODEL,
-        max_tokens: maxTokens,
+        model: byKey ? (p.model || DEFAULT_CLAUDE_MODEL) : BUILTIN_CLAUDE_MODEL,
+        max_tokens: byKey ? claudeTokens(maxTokens) : maxTokens,
         messages: [{ role: "user", content: prompt }]
       })
     });
     if(!r.ok) await bail("Claude API" + (r.status === 401 ? " (check your API key)" : ""), r);
-    const data = await r.json();
-    return (data.content || []).map(b => b.type === "text" ? b.text : "").join("");
+    return claudeText(await r.json());
   }
   if(p.provider === "engine"){
     if(!engineBase()) throw new Error("Set the engine URL in AI settings");
     const r = await fetch(engineBase() + "/proxy", {
       method: "POST", headers: engineHeaders(),
-      body: JSON.stringify({ model: DEFAULT_CLAUDE_MODEL, max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] })
+      body: JSON.stringify({ model: DEFAULT_CLAUDE_MODEL, max_tokens: claudeTokens(maxTokens), messages: [{ role: "user", content: prompt }] })
     });
     if(!r.ok) await bail("Engine", r);
-    const data = await r.json();
-    return (data.content || []).map(b => b.type === "text" ? b.text : "").join("");
+    return claudeText(await r.json());
   }
   if(p.provider === "proxy"){
     const url = p.base || "proxy.php";
@@ -1035,13 +1051,12 @@ async function askAIOnce(prompt, opts){
       headers,
       body: JSON.stringify({
         model: p.model || DEFAULT_CLAUDE_MODEL,
-        max_tokens: maxTokens,
+        max_tokens: claudeTokens(maxTokens),
         messages: [{ role: "user", content: prompt }]
       })
     });
     if(!r.ok) await bail("Proxy" + (r.status === 401 ? " (check the team token)" : ""), r);
-    const data = await r.json();
-    return (data.content || []).map(b => b.type === "text" ? b.text : "").join("");
+    return claudeText(await r.json());
   }
   if(p.provider === "gemini"){
     if(!p.key) throw new Error("Add your Gemini API key in AI settings");

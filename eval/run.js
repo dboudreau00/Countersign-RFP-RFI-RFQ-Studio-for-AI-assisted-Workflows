@@ -126,10 +126,9 @@ async function draft(c, retrieval) {
   const prompt = engine.buildPrompt(c.question, retrieval, { type: c.type, max_words: 150 });
   const once = async () => {
     if (process.env.ANTHROPIC_API_KEY) {
-      const up = await engine.callClaude({ model: engine.MODEL, max_tokens: 1000, messages: [{ role: "user", content: prompt }] });
+      const up = await engine.callClaude({ model: engine.MODEL, max_tokens: engine.ANSWER_MAX_TOKENS, messages: [{ role: "user", content: prompt }] });
       if (up.status !== 200) throw Object.assign(new Error("Anthropic " + up.status + ": " + up.text.slice(0, 160)), { status: up.status });
-      const d = JSON.parse(up.text);
-      return { model: engine.MODEL, text: (d.content || []).map((b) => (b.type === "text" ? b.text : "")).join("").trim() };
+      return { model: engine.MODEL, text: engine.answerText(JSON.parse(up.text)) };
     }
     if (process.env.GEMINI_API_KEY) {
       const model = process.env.GEMINI_MODEL || "gemini-flash-lite-latest";

@@ -25,11 +25,12 @@ const API_KEY        = process.env.ANTHROPIC_API_KEY || "";
 const TEAM_TOKEN     = process.env.COUNTERSIGN_TOKEN || "";
 const PORT           = parseInt(process.env.PORT || "8787", 10);
 const ALLOW_ORIGIN   = process.env.ALLOW_ORIGIN || "*";
-const ALLOWED_MODELS = ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
-const DEFAULT_MODEL  = "claude-sonnet-4-6";
+const ALLOWED_MODELS = ["claude-sonnet-5-5", "claude-sonnet-4-6", "claude-haiku-4-5", "claude-haiku-4-5-20251001"];
+const DEFAULT_MODEL  = "claude-sonnet-5-5";
 // Must stay above what the app asks for on its largest call ("Extract questions"
-// returns a JSON array of up to 40 items); a 1024 cap silently truncated that JSON.
-const MAX_TOKENS_CAP = 8192;
+// returns a JSON array of up to 40 items, and thinking tokens count against the cap);
+// a 1024 cap silently truncated that JSON.
+const MAX_TOKENS_CAP = 16384;
 const MAX_BODY_BYTES = 400_000;
 
 function send(res, code, obj) {

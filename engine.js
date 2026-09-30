@@ -19,7 +19,7 @@
  *   PORT=8790                 listen port
  *   KB_DIR=./kb               directory of plain-text sources
  *   DATA_FILE=./countersign-data.json
- *   MODEL=claude-sonnet-4-6   generation model
+ *   MODEL=claude-sonnet-5-5   generation model
  *   ALLOW_ORIGIN=*            CORS origin for browser callers
  *   COUNTERSIGN_TOKEN=...     shared secret; required on every POST when set
  *
@@ -43,7 +43,7 @@ const TEAM_TOKEN   = process.env.COUNTERSIGN_TOKEN || "";
 const PORT         = parseInt(process.env.PORT || "8790", 10);
 const KB_DIR       = process.env.KB_DIR || path.join(__dirname, "kb");
 const DATA_FILE    = process.env.DATA_FILE || path.join(__dirname, "countersign-data.json");
-const MODEL        = process.env.MODEL || "claude-sonnet-4-6";
+const MODEL        = process.env.MODEL || "claude-sonnet-5-5";
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
 const CHUNK_SIZE     = 1100;   // chars per retrieval chunk
 const CONTEXT_BUDGET = 11000;  // chars of retrieved context per answer
@@ -51,7 +51,10 @@ const MAX_BODY_BYTES = 1_500_000; // /ingest can carry a whole document
 const MAX_DOC_CHARS  = 220000;
 const CONCURRENCY    = Math.min(Math.max(parseInt(process.env.CONCURRENCY || "2", 10) || 2, 1), 4);
 const MAX_BATCH      = 100;
-const PROXY_MAX_TOKENS = 8192;  // ceiling for the raw /proxy pass-through
+// Current Claude models think before answering and thinking tokens count against
+// max_tokens, so an answer-sized cap can be spent before any text is written.
+const ANSWER_MAX_TOKENS = 8192;
+const PROXY_MAX_TOKENS = 16384; // ceiling for the raw /proxy pass-through
 
 /* ================================================================
    Knowledge base: load, chunk, TF-IDF index
@@ -275,6 +278,19 @@ async function callClaude(body) {
   }
 }
 
+/* Text of a Messages API response. A refusal, or a response that spent its whole
+   budget before writing text, is an error: returning "" as an answer hides it. */
+function answerText(data) {
+  const text = (data.content || []).map(b => (b.type === "text" ? b.text : "")).join("").trim();
+  if (data.stop_reason === "refusal") {
+    const category = data.stop_details && data.stop_details.category;
+    throw new Error("Model declined to answer" + (category ? " (" + category + ")" : ""));
+  }
+  if (!text) throw new Error(data.stop_reason === "max_tokens"
+    ? "Model ran out of output tokens before answering" : "Model returned an empty answer");
+  return text;
+}
+
 /* ================================================================
    HTTP server
 ================================================================ */
@@ -295,15 +311,14 @@ const routes = {
     const retrieval = retrieve(body.question);
     const up = await callClaude({
       model: MODEL,
-      max_tokens: 1000,
+      max_tokens: ANSWER_MAX_TOKENS,
       messages: [{ role: "user", content: buildPrompt(body.question, retrieval, body) }],
     });
     if (up.status !== 200) return send(res, up.status, up.text);
-    let answer = "";
-    try {
-      const data = JSON.parse(up.text);
-      answer = (data.content || []).map(b => (b.type === "text" ? b.text : "")).join("").trim();
-    } catch (e) { return fail(res, 502, "Bad upstream response"); }
+    let data;
+    try { data = JSON.parse(up.text); } catch (e) { return fail(res, 502, "Bad upstream response"); }
+    let answer;
+    try { answer = answerText(data); } catch (e) { return fail(res, 502, e.message); }
     send(res, 200, {
       answer,
       sources: retrieval.sources,
@@ -403,7 +418,7 @@ const routes = {
       // per-item values override the batch-level defaults (documented in ENGINE.md)
       const opts = { type: it.type ?? body.type, tone: it.tone ?? body.tone, max_words: it.max_words ?? body.max_words };
       const payload = () => ({
-        model: MODEL, max_tokens: 1000,
+        model: MODEL, max_tokens: ANSWER_MAX_TOKENS,
         messages: [{ role: "user", content: buildPrompt(it.question, retrieval, opts) }],
       });
       let up = await callClaude(payload());
@@ -417,13 +432,12 @@ const routes = {
         try { message += " — " + JSON.parse(up.text).error.message; } catch (e) {}
         return emit({ kind: "error", index: i, id: it.id, ref: it.ref, question: it.question, status: up.status, message });
       }
-      let answer = "";
-      try {
-        const d = JSON.parse(up.text);
-        answer = (d.content || []).map(b => (b.type === "text" ? b.text : "")).join("").trim();
-      } catch (e) {
+      let answer;
+      try { answer = answerText(JSON.parse(up.text)); }
+      catch (e) {
         failed++;
-        return emit({ kind: "error", index: i, id: it.id, ref: it.ref, question: it.question, status: 502, message: "Bad upstream response" });
+        const message = e instanceof SyntaxError ? "Bad upstream response" : e.message;
+        return emit({ kind: "error", index: i, id: it.id, ref: it.ref, question: it.question, status: 502, message });
       }
       ok++;
       emit({
@@ -525,5 +539,5 @@ if (require.main === module) {
 } else {
   // Required as a module (the eval harness does this): expose the pipeline without
   // touching the filesystem or opening a port. Callers load their own knowledge base.
-  module.exports = { KB, addDoc, reindex, retrieve, buildPrompt, callClaude, tokenize, stem, STOP, MODEL, CHUNK_SIZE };
+  module.exports = { KB, addDoc, reindex, retrieve, buildPrompt, callClaude, answerText, tokenize, stem, STOP, MODEL, CHUNK_SIZE, ANSWER_MAX_TOKENS };
 }

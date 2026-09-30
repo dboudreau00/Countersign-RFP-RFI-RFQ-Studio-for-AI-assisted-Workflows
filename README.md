@@ -203,6 +203,7 @@ so the message itself usually names the fix.
 | `Claude API (check your API key) 401: …` | Bad/expired key in "Claude (your API key)" mode. |
 | "Claude declined this request (…)" | The model's safety classifier refused that question (the category is in brackets). Reword the question, or set another model such as `claude-sonnet-4-6` in AI settings. The question is marked **Failed**, never saved as an empty answer. |
 | `Gemini API (unknown model "…") 404: …` | The model name in AI settings no longer exists. Clear the field to use the current default, or set a model from `GET https://generativelanguage.googleapis.com/v1beta/models`. |
+| `Gemini API 503: This model is currently experiencing high demand` | Google is shedding load on that model. The app already retried once. Wait and retry, or set the Model field in AI settings to `gemini-flash-lite-latest`, which has separate capacity. |
 | `Gemini API 429: You exceeded your current quota` | Free-tier rate limit. Wait, switch model, or enable billing. The app already retries once automatically. |
 | `Engine 401 / 404 / 500: …` | Countersign Engine provider: check the URL, the team token, and that `engine.js` is running (**⟲ Check engine** on page 1 reports its status). |
 | "The engine stream ended early" | The `/batch` connection dropped mid-stream. Unanswered rows are stamped **Failed**. Regenerate those individually. |

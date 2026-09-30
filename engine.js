@@ -100,7 +100,8 @@ const termFreqs = (s) => {
   return tf;
 };
 
-const KB = { docs: new Map(), chunks: [], df: Object.create(null), idf: Object.create(null) };
+// files: document key -> the kb/ file that backs it (documents from DATA_FILE have none)
+const KB = { docs: new Map(), files: new Map(), chunks: [], df: Object.create(null), idf: Object.create(null) };
 
 function reindex() {
   KB.chunks = [];
@@ -137,24 +138,36 @@ function addDoc(name, text, persist) {
   // persisted docs are stored under their canonical filename, so use the same
   // key in memory — /forget and re-ingest then behave identically across restarts
   const key = persist ? canonicalName(name) : name;
+  // A pushed document replaces any copy loaded under its original name (from DATA_FILE,
+  // or a kb/ file whose name is not canonical); keeping both indexes the text twice.
+  const superseded = [];
+  if (persist && name !== key && KB.docs.has(name)) {
+    KB.docs.delete(name);
+    superseded.push(name);
+    const old = KB.files.get(name);
+    if (old && old !== key) { try { fs.unlinkSync(path.join(KB_DIR, old)); } catch (e) {} }
+    KB.files.delete(name);
+  }
   KB.docs.set(key, text);
   let persisted = null;
   if (persist) {
     try {
       fs.mkdirSync(KB_DIR, { recursive: true });
       fs.writeFileSync(path.join(KB_DIR, key), text);
+      KB.files.set(key, key);
       persisted = true;
     } catch (e) { console.warn("[kb] persist failed:", e.message); persisted = false; }
   }
-  return { key, persisted, chars: text.length, truncated: rawChars > text.length };
+  return { key, superseded, persisted, chars: text.length, truncated: rawChars > text.length };
 }
 
 function loadKnowledgeBase() {
   // 1. workspace export from the web app
+  const fromData = new Map();   // canonical name -> DATA_FILE document name
   try {
     const ws = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
     if (ws && Array.isArray(ws.docs)) {
-      for (const d of ws.docs) if (d.name && d.text) addDoc(d.name, d.text, false);
+      for (const d of ws.docs) if (d.name && d.text && addDoc(d.name, d.text, false)) fromData.set(canonicalName(d.name), String(d.name));
       console.log(`[kb] loaded ${ws.docs.length} docs from ${path.basename(DATA_FILE)}`);
     }
   } catch (e) { /* file absent is fine */ }
@@ -163,7 +176,11 @@ function loadKnowledgeBase() {
     for (const f of fs.readdirSync(KB_DIR)) {
       if (!/\.(txt|md|csv|json)$/i.test(f)) continue;
       if (/^countersign-data\.json$/i.test(f) || /^README\.txt$/i.test(f)) continue; // workspace exports & folder docs aren't KB sources
-      addDoc(f, fs.readFileSync(path.join(KB_DIR, f), "utf8"), false);
+      if (!addDoc(f, fs.readFileSync(path.join(KB_DIR, f), "utf8"), false)) continue;
+      KB.files.set(f, f);
+      // a pushed copy of a DATA_FILE document supersedes it
+      const dup = fromData.get(canonicalName(f));
+      if (dup !== undefined && dup !== f) KB.docs.delete(dup);
     }
   } catch (e) { /* dir absent is fine */ }
   reindex();
@@ -378,16 +395,18 @@ const routes = {
     if (typeof body.name !== "string" || !body.name.trim())
       return fail(res, 400, "Provide { name: string }");
     // Resolve the key we actually removed, and only unlink the file backing THAT key.
-    // Deleting canonicalName(name) unconditionally would remove a different document's
-    // persisted file when `name` came from the workspace export rather than kb/.
+    // A document from the workspace export has no file, so forgetting it never removes
+    // a same-named file that belongs to a different document.
     const canon = canonicalName(body.name);
     let key = null;
     if (KB.docs.delete(body.name)) key = body.name;
     else if (KB.docs.delete(canon)) key = canon;
     if (!key) return fail(res, 404, "No such document");
     let removedFile = false;
-    if (key === canon) {
-      try { fs.unlinkSync(path.join(KB_DIR, canon)); removedFile = true; } catch (e) {}
+    const file = KB.files.get(key);
+    if (file) {
+      try { fs.unlinkSync(path.join(KB_DIR, file)); removedFile = true; } catch (e) {}
+      KB.files.delete(key);
     }
     reindex();
     send(res, 200, { ok: true, name: key, docs: KB.docs.size, file_removed: removedFile });

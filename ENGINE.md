@@ -195,6 +195,11 @@ restarts. When scanning `kb/` at boot the engine skips `README.txt` and
 text), so a document whose name would canonicalise onto one of those is stored
 with a leading underscore (`_README.txt`) instead of overwriting it.
 
+Pushing a document replaces any copy loaded under its original name, whether it
+came from `DATA_FILE` or from a `kb/` file whose name was not canonical, so the web
+app's **Push bucket to engine** never indexes a document twice. At boot a `kb/` file
+likewise supersedes the `DATA_FILE` document it was pushed from.
+
 `/ingest` response:
 ```json
 { "ok": true, "name": "SLA Policy _v2_.pdf.txt", "chars": 1840,
@@ -208,8 +213,8 @@ after a restart. Check both rather than relying on `ok` alone.
 
 `/forget` requires a non-empty `name` (a request without one is a `400`, not a
 delete). It accepts either the original or the stored name and echoes the key it
-actually removed. The persisted file under `kb/` is deleted **only** when that
-key is the canonical filename: forgetting a document that came from `DATA_FILE`
+actually removed. The file under `kb/` is deleted **only** when that document was
+loaded from or pushed to `kb/`: forgetting a document that came from `DATA_FILE`
 never removes a same-named file belonging to a different document:
 ```json
 { "ok": true, "name": "SLA Policy _v2_.pdf.txt", "docs": 42, "file_removed": true }

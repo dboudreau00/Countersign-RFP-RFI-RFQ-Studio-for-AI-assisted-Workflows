@@ -2073,12 +2073,18 @@ function showPage(name){
 }
 
 const modal = $("settings-modal");
+/* One key field serves every provider, so each provider's key is remembered separately
+   (in memory only). Switching the provider must never leave the previous provider's
+   key in the field, where Save would send it to the new one. */
+const sessionKeys = {};
+let keyFieldProvider = null;
 $("open-settings").onclick = () => {
   // rehydrate inputs from saved settings — otherwise a reload + Save silently wipes base/model
   $("set-provider").value = S.settings.provider;
   $("set-base").value = S.settings.base;
   $("set-model").value = S.settings.model;
   $("set-key").value = S.settings.key;   // session-only by design; empty after a reload
+  keyFieldProvider = S.settings.provider;
   // the length selects must be rehydrated too, or a workspace import followed by
   // Save silently reverts the imported targets to whatever the dropdowns still show
   for(const t of Object.keys(QTYPES)){
@@ -2089,7 +2095,13 @@ $("open-settings").onclick = () => {
 };
 $("settings-close").onclick = () => modal.classList.remove("show");
 modal.addEventListener("click", e => { if(e.target === modal) modal.classList.remove("show"); });
-$("set-provider").onchange = syncSettingsUI;
+$("set-provider").onchange = () => {
+  if(keyFieldProvider) sessionKeys[keyFieldProvider] = $("set-key").value.trim();
+  keyFieldProvider = $("set-provider").value;
+  $("set-key").value = sessionKeys[keyFieldProvider]
+    ?? (keyFieldProvider === S.settings.provider ? S.settings.key : "");
+  syncSettingsUI();
+};
 function syncSettingsUI(){
   const p = $("set-provider").value;
   const tokenStyle = (p === "proxy" || p === "engine");
@@ -2115,6 +2127,7 @@ function syncProviderChip(){
 $("settings-save").onclick = () => {
   S.settings.provider = $("set-provider").value;
   S.settings.key = $("set-key").value.trim();
+  sessionKeys[S.settings.provider] = S.settings.key;
   S.settings.base = $("set-base").value.trim();
   S.settings.model = $("set-model").value.trim();
   for(const t of Object.keys(QTYPES)){

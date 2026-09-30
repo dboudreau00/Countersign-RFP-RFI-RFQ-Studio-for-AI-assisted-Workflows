@@ -123,9 +123,11 @@ const canonicalName = (name) => {
   return RESERVED_NAMES.test(named) ? "_" + named : named;
 };
 function addDoc(name, text, persist) {
+  // CRLF and LF copies of one file must chunk identically: chunks are cut by length
+  text = String(text).replace(/\r\n?/g, "\n");
   // measured after stripping NULs, or any document containing one reports truncated
-  const rawChars = String(text).split(String.fromCharCode(0)).join("").trim().length;
-  text = String(text).replace(/\u0000/g, "").trim().slice(0, MAX_DOC_CHARS);
+  const rawChars = text.split(String.fromCharCode(0)).join("").trim().length;
+  text = text.replace(/\u0000/g, "").trim().slice(0, MAX_DOC_CHARS);
   if (!text) return false;
   // persisted docs are stored under their canonical filename, so use the same
   // key in memory — /forget and re-ingest then behave identically across restarts

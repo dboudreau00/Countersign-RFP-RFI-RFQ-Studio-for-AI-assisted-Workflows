@@ -2214,6 +2214,7 @@ async function importWorkspace(obj, sourceLabel, opts){
   }
   renderDocs(); renderLedger();
   await persistDocs(); await persistQs();
+  await store.save("cs-settings", { ...S.settings, key: "" });
   toast(`Workspace loaded from ${sourceLabel}: ${S.docs.length} sources, ${S.questions.length} questions`);
   return true;
 }

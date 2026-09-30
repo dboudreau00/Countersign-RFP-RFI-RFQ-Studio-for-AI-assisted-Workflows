@@ -241,7 +241,7 @@ function retrieve(question, budget = CONTEXT_BUDGET) {
    Generation
 ================================================================ */
 const TYPE_RULES = {
-  compliance: 'This is a COMPLIANCE question: open with a one-word verdict — "Yes.", "No." or "Partially." — then substantiate briefly. Only answer "Yes" if the reference material supports it.',
+  compliance: 'This is a COMPLIANCE question: open with a one-word verdict ("Yes.", "No." or "Partially."), then substantiate briefly. Only answer "Yes" if the reference material supports it.',
   technical:  "This is a TECHNICAL question: be concrete about architecture, standards and mechanisms; evaluators are engineers. Avoid marketing language.",
   commercial: "This is a COMMERCIAL question: describe the pricing/licensing model and flexibility without quoting exact figures unless they appear in the reference material.",
   narrative:  "This is a NARRATIVE question: tell a credible, client-focused story about capability and approach.",
@@ -253,10 +253,10 @@ function buildPrompt(question, retrieval, opts) {
   const typeRule = TYPE_RULES[opts.type] || "";
   return `You are a senior proposal writer for a SaaS vendor, drafting an answer to one RFP question.
 
-Write in first-person plural ("we", "our platform"), tone: ${tone}. Target about ${words} words. ${typeRule} Be specific and confident; never invent certifications, customers, SLAs or numbers that are not in the reference material. If the reference material doesn't cover something, answer at the level it supports and note what can be confirmed on request. Respond with the answer text only — no headings, no preamble.
+Write in first-person plural ("we", "our platform"), tone: ${tone}. Target about ${words} words. ${typeRule} Be specific and confident; never invent certifications, customers, SLAs or numbers that are not in the reference material. If the reference material doesn't cover something, answer at the level it supports and note what can be confirmed on request. Respond with the answer text only: no headings, no preamble.
 
 REFERENCE MATERIAL FROM OUR DOCUMENTATION:
-${retrieval.context || "(No matching documentation found — write a competent generic SaaS response and clearly hedge specifics.)"}
+${retrieval.context || "(No matching documentation found. Write a competent generic SaaS response and clearly hedge specifics.)"}
 
 RFP QUESTION: ${question}`;
 }
@@ -431,7 +431,7 @@ const routes = {
       if (up.status !== 200) {
         failed++;
         let message = "Upstream " + up.status;
-        try { message += " — " + JSON.parse(up.text).error.message; } catch (e) {}
+        try { message += ": " + JSON.parse(up.text).error.message; } catch (e) {}
         return emit({ kind: "error", index: i, id: it.id, ref: it.ref, question: it.question, status: up.status, message });
       }
       let answer;

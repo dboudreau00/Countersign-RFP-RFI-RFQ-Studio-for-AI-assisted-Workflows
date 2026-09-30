@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Countersign — RFP Response Studio</title>
+<title>Countersign: RFP Response Studio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -309,12 +309,12 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
     <section class="page visible" id="page-bucket">
       <div class="eyebrow">Step 1 · Source of truth</div>
       <h1>Documentation bucket</h1>
-      <p class="lede">Drop your product docs, security policies, SOC 2 summaries, architecture overviews and past proposals — up to <b>500 source documents</b>. Countersign parses everything in your browser, indexes it for retrieval, and cites which sources ground each RFP answer.</p>
+      <p class="lede">Drop your product docs, security policies, SOC 2 summaries, architecture overviews and past proposals, up to <b>500 source documents</b>. Countersign parses everything in your browser, indexes it for retrieval, and cites which sources ground each RFP answer.</p>
 
       <div class="drop" id="dropzone" tabindex="0" role="button" aria-label="Upload documentation files">
         <div class="big">Drop files here, or click to browse</div>
-        <div class="hint">Files are parsed locally — nothing is uploaded to a server. Multi-select or drop whole batches.</div>
-        <div class="fmt">.PDF · .DOCX · .XLSX · .CSV · .TXT · .MD — UP TO 500 SOURCES</div>
+        <div class="hint">Files are parsed locally. Nothing is uploaded to a server. Multi-select or drop whole batches.</div>
+        <div class="fmt">.PDF · .DOCX · .XLSX · .CSV · .TXT · .MD · UP TO 500 SOURCES</div>
         <input type="file" id="file-input" multiple accept=".pdf,.docx,.xlsx,.xls,.csv,.txt,.md" hidden>
       </div>
 
@@ -332,10 +332,10 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
       <div class="card">
         <h2>Self-hosting &amp; workspace directory file</h2>
         <p class="hint" style="margin-bottom:12px">
-          This app is a single HTML file — drop it in your web root (e.g. <span class="mono">public_html/rfp/index.html</span>) and it runs as-is.
+          This app is a single HTML file: drop it in your web root (e.g. <span class="mono">public_html/rfp/index.html</span>) and it runs as-is.
           To ship a shared knowledge base with it, export the workspace as <span class="mono">countersign-data.json</span> and place it in the <b>same directory</b>:
           the app auto-loads it on first open, so your whole team starts with the same 500-source bucket. On your own hosting, work also persists in each visitor's browser storage.
-          To share one API key across the team instead of everyone pasting their own, deploy the bundled <span class="mono">proxy.php</span> (shared hosting) or <span class="mono">proxy.js</span> (Node) — see the README — and pick <b>Team server proxy</b> in AI settings.
+          To share one API key across the team instead of everyone pasting their own, deploy the bundled <span class="mono">proxy.php</span> (shared hosting) or <span class="mono">proxy.js</span> (Node), described in the README, and pick <b>Team server proxy</b> in AI settings.
         </p>
         <div class="q-actions">
           <button class="btn small" id="ws-export">↓ Export workspace file</button>
@@ -356,7 +356,7 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
         </div>
         <p class="hint" style="margin-bottom:8px">
           Run the bundled <span class="mono">engine.js</span> on a server (see ENGINE.md) to keep the knowledge base <em>and</em> the API key server-side.
-          Pick <b>Countersign Engine</b> in ⚙ AI settings and generation switches to the server's retrieval — with whole-RFP batches streamed back live.
+          Pick <b>Countersign Engine</b> in ⚙ AI settings and generation switches to the server's retrieval, with whole-RFP batches streamed back live.
           Push this bucket up so the engine indexes the same sources.
         </p>
         <span class="hint mono" id="engine-status">Configure in ⚙ AI settings</span>
@@ -372,7 +372,7 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
     <section class="page" id="page-workspace">
       <div class="eyebrow">Step 2 · Draft &amp; review</div>
       <h1>Response workspace</h1>
-      <p class="lede">Load the RFP, let the model extract every question into a ledger, then generate grounded answers. Each answer cites which bucket documents informed it — edit freely, then stamp it approved.</p>
+      <p class="lede">Load the RFP, let the model extract every question into a ledger, then generate grounded answers. Each answer cites which bucket documents informed it. Edit freely, then stamp it approved.</p>
 
       <div class="card">
         <h2>RFP source</h2>
@@ -389,7 +389,7 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
           </div>
         </div>
         <div class="map-panel" id="sheet-map" style="display:none">
-          <h3>Spreadsheet detected — map the columns</h3>
+          <h3>Spreadsheet detected: map the columns</h3>
           <div class="grid4">
             <div>
               <label class="field">Sheet</label>
@@ -445,10 +445,10 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
 
       <div class="card">
         <div class="spread" style="margin-bottom:6px">
-          <h2 style="margin:0">Coverage gap report <span class="pill-count" id="gap-count">—</span></h2>
+          <h2 style="margin:0">Coverage gap report <span class="pill-count" id="gap-count">not run</span></h2>
           <button class="btn ghost small" id="run-gaps">Run gap analysis</button>
         </div>
-        <p class="hint" style="margin-bottom:8px">Checks every question against the bucket locally (no AI calls) and flags the ones your documentation can't substantiate — fix these before submission.</p>
+        <p class="hint" style="margin-bottom:8px">Checks every question against the bucket locally (no AI calls) and flags the ones your documentation can't substantiate. Fix these before submission.</p>
         <div id="gap-list"><div class="empty">Run the analysis once questions are in the ledger.</div></div>
       </div>
 
@@ -471,7 +471,7 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
         </button>
         <button class="fmt-card" data-fmt="xlsx">
           <span class="ext">.XLSX</span><b>Excel workbook</b>
-          <span>One row per question — ref, question, response, status, sources.</span>
+          <span>One row per question: ref, question, response, status, sources.</span>
         </button>
         <button class="fmt-card" data-fmt="csv">
           <span class="ext">.CSV</span><b>CSV matrix</b>
@@ -526,21 +526,21 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
     <div class="row">
       <label class="field">Provider</label>
       <select id="set-provider">
-        <option value="claude">Claude (built-in — no key needed inside Claude.ai)</option>
-        <option value="claude-key">Claude (your Anthropic API key — for self-hosted)</option>
+        <option value="claude">Claude (built-in, no key needed inside Claude.ai)</option>
+        <option value="claude-key">Claude (your Anthropic API key, for self-hosted)</option>
         <option value="gemini">Google Gemini (bring your key)</option>
         <option value="openai">OpenAI-compatible / Copilot endpoint (bring your key)</option>
         <option value="proxy">Team server proxy (key stays on your server)</option>
         <option value="engine">Countersign Engine (server knowledge base + streaming batch)</option>
       </select>
       <div class="hint" id="key-warning" style="display:none;margin-top:6px;color:var(--amber)">
-        ⚠ Keys are held in memory for this session only and sent solely to the provider. Never hard-code a key into a publicly hosted page — each user pastes their own.
+        ⚠ Keys are held in memory for this session only and sent solely to the provider. Never hard-code a key into a publicly hosted page: each user pastes their own.
       </div>
     </div>
     <div class="row" id="key-row" style="display:none">
       <label class="field" id="key-label">API key</label>
       <input type="password" id="set-key" placeholder="Paste your API key" autocomplete="off">
-      <div class="hint" style="margin-top:5px">Stored only in this session's memory — never persisted or sent anywhere except the provider.</div>
+      <div class="hint" style="margin-top:5px">Stored only in this session's memory. Never persisted or sent anywhere except the provider.</div>
     </div>
     <div class="row" id="base-row" style="display:none">
       <label class="field">Base URL</label>
@@ -587,7 +587,7 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
           </select>
         </div>
       </div>
-      <div class="hint" style="margin-top:6px">Each question is auto-classified on import — you can reassign a type on any ledger row.</div>
+      <div class="hint" style="margin-top:6px">Each question is auto-classified on import. You can reassign a type on any ledger row.</div>
     </div>
     <div class="q-actions">
       <button class="btn" id="settings-save">Save settings</button>
@@ -701,7 +701,7 @@ const store = {
     try{ await backend.set(key, JSON.stringify(val)); return true; }
     catch(e){
       console.warn("persist failed", e);
-      if(backend.name === "local") toast("Browser storage quota hit — use “Export workspace file” to keep your bucket", true);
+      if(backend.name === "local") toast("Browser storage quota hit. Use “Export workspace file” to keep your bucket", true);
       return false;
     }
   },
@@ -949,7 +949,7 @@ async function engineFetch(path, body){
   const r = await fetch(engineBase() + path, { method: "POST", headers: engineHeaders(), body: JSON.stringify(body) });
   const text = await r.text();
   let data = null; try{ data = JSON.parse(text); }catch(e){}
-  if(!r.ok) throw new Error("Engine " + r.status + (data?.error?.message ? " — " + data.error.message : ""));
+  if(!r.ok) throw new Error("Engine " + r.status + (data?.error?.message ? ": " + data.error.message : ""));
   return data;
 }
 /* Pull the human-readable message out of a provider error body, whatever shape it uses
@@ -1148,7 +1148,7 @@ async function ingestFiles(fileList){
   let skippedDupes = 0, parsed = 0;
   for(const f of files){
     if(S.docs.length >= MAX_DOCS){
-      toast(`Bucket is at its ${MAX_DOCS}-source limit — remove documents to add more`, true);
+      toast(`Bucket is at its ${MAX_DOCS}-source limit. Remove documents to add more`, true);
       break;
     }
     if(S.docs.some(d => d.name === f.name && d.size === f.size)){ skippedDupes++; continue; }
@@ -1160,7 +1160,7 @@ async function ingestFiles(fileList){
       const total = S.docs.reduce((a,d) => a + d.chars, 0);
       if(total > TOTAL_CHAR_BUDGET){
         S.docs = S.docs.filter(d => d.id !== row.id);
-        toast(`Bucket text budget (~${fmtKB(TOTAL_CHAR_BUDGET)}) reached — ${f.name} not added`, true);
+        toast(`Bucket text budget (~${fmtKB(TOTAL_CHAR_BUDGET)}) reached, so ${f.name} was not added`, true);
         renderDocs();
         break;
       }
@@ -1173,7 +1173,7 @@ async function ingestFiles(fileList){
     renderDocs();
   }
   if(parsed) toast(`Added ${parsed} document${parsed === 1 ? "" : "s"} to the bucket` + (skippedDupes ? ` · ${skippedDupes} duplicate${skippedDupes === 1 ? "" : "s"} skipped` : ""));
-  else if(skippedDupes) toast(`${skippedDupes} duplicate file${skippedDupes === 1 ? "" : "s"} skipped — already in the bucket`);
+  else if(skippedDupes) toast(`${skippedDupes} duplicate file${skippedDupes === 1 ? "" : "s"} skipped (already in the bucket)`);
   await persistDocs();
 }
 
@@ -1303,12 +1303,12 @@ function populateColumns(){
   const opt = (c) => {
     const letter = XLSX.utils.encode_col(c);
     const label = String(header[c] || "").trim().slice(0, 24);
-    return `<option value="${c}">${letter}${label ? " — " + esc(label) : ""}</option>`;
+    return `<option value="${c}">${letter}${label ? ": " + esc(label) : ""}</option>`;
   };
   const opts = Array.from({ length: nCols }, (_, c) => opt(c)).join("");
   $("map-ref").innerHTML = `<option value="-1">(auto-number)</option>` + opts;
   $("map-q").innerHTML = opts;
-  $("map-ans").innerHTML = `<option value="-1">(skip — no round-trip)</option>` + opts;
+  $("map-ans").innerHTML = `<option value="-1">(skip, no round-trip)</option>` + opts;
   // guess: question column = header containing question/requirement, else longest average text
   let qGuess = -1;
   header.forEach((h, c) => { if(/question|requirement|criteri|item|description/i.test(String(h))) qGuess = c; });
@@ -1365,7 +1365,7 @@ $("map-import").onclick = async () => {
   }
   renderLedger(); await persistQs();
   updateRoundtripCard();
-  toast(`Imported ${added} questions from ${sheet} — round-trip export is now available`);
+  toast(`Imported ${added} questions from ${sheet}. Round-trip export is now available`);
 };
 function updateRoundtripCard(){
   const ok = !!(rfpWorkbook && rfpMapping && rfpMapping.ansCol >= 0);
@@ -1405,7 +1405,7 @@ ${source.slice(0, 55000)}`, { maxTokens: EXTRACT_TOKENS });
     renderLedger(); await persistQs();
     toast(`Extracted ${added} questions into the ledger`);
     if(truncated) toast(`The model's reply was cut off. ${added} questions recovered, but some may be missing. Check the ledger against the RFP.`, true);
-    if(source.length > 55000) toast("Long RFP — first ~55k characters were scanned. Add any missed questions manually.");
+    if(source.length > 55000) toast("Long RFP: only the first ~55k characters were scanned. Add any missed questions manually.");
   }catch(err){
     toast("Extraction failed: " + err.message, true);
   }
@@ -1424,17 +1424,17 @@ function answerPrompt(q, retrieval){
   const type = q.type || "narrative";
   const words = safeLen(type);
   const typeRules = {
-    compliance: 'This is a COMPLIANCE question: open with a one-word verdict — "Yes.", "No." or "Partially." — then substantiate in a short paragraph. Only answer "Yes" if the reference material supports it.',
+    compliance: 'This is a COMPLIANCE question: open with a one-word verdict ("Yes.", "No." or "Partially."), then substantiate in a short paragraph. Only answer "Yes" if the reference material supports it.',
     technical: "This is a TECHNICAL question: be concrete about architecture, standards and mechanisms; evaluators are engineers. Avoid marketing language.",
     commercial: "This is a COMMERCIAL question: describe the pricing/licensing model and flexibility without quoting exact figures unless they appear in the reference material.",
     narrative: "This is a NARRATIVE question: tell a credible, client-focused story about capability and approach."
   };
   return `You are a senior proposal writer for a SaaS vendor, drafting an answer to one RFP question.
 
-Write in first-person plural ("we", "our platform"), tone: ${tone}. Target about ${words} words. ${typeRules[type]} Be specific and confident; never invent certifications, customers, SLAs or numbers that are not in the reference material. If the reference material doesn't cover something, answer at the level it supports and note what can be confirmed on request. Respond with the answer text only — no headings, no preamble.
+Write in first-person plural ("we", "our platform"), tone: ${tone}. Target about ${words} words. ${typeRules[type]} Be specific and confident; never invent certifications, customers, SLAs or numbers that are not in the reference material. If the reference material doesn't cover something, answer at the level it supports and note what can be confirmed on request. Respond with the answer text only: no headings, no preamble.
 
 REFERENCE MATERIAL FROM OUR DOCUMENTATION:
-${retrieval.context || "(No matching documentation found — write a competent generic SaaS response and clearly hedge specifics.)"}
+${retrieval.context || "(No matching documentation found. Write a competent generic SaaS response and clearly hedge specifics.)"}
 
 RFP QUESTION (${q.ref}): ${q.text}`;
 }
@@ -1492,7 +1492,7 @@ $("generate-all").onclick = async () => {
       await generateAllViaEngine(todo, bar, label);
     } else {
       if(S.settings.provider === "engine") throw new Error("Set the engine URL in AI settings");
-      if(!S.docs.length) toast("Bucket is empty — answers will be generic. Add docs in step 1 for grounded responses.");
+      if(!S.docs.length) toast("Bucket is empty, so answers will be generic. Add docs in step 1 for grounded responses.");
       for(let i = 0; i < todo.length; i++){
         label.textContent = `${i} / ${todo.length} · ${todo[i].ref}`;
         bar.style.width = (i / todo.length * 100) + "%";
@@ -1505,7 +1505,7 @@ $("generate-all").onclick = async () => {
       label.textContent = `${todo.length} / ${todo.length} · done` + (failed ? ` · ${failed} failed` : "");
       if(failed === todo.length) toast(`All ${failed} answers failed. Check ⚙ AI settings (provider, key, model)`, true);
       else if(failed) toast(`${todo.length - failed} answers generated · ${failed} failed (red stamps). Regenerate those individually`, true);
-      else toast("Draft answers generated — review and stamp approvals");
+      else toast("Draft answers generated. Review and stamp approvals");
     }
   }catch(err){
     toast(err.message, true);
@@ -1541,7 +1541,7 @@ async function generateAllViaEngine(todo, bar, label){
   label.textContent = `${done} / ${todo.length} · done` + (failed ? ` · ${failed} failed` : "");
   if(failed === todo.length) toast(`All ${failed} answers failed. Check the engine and its API key`, true);
   else if(failed) toast(`Batch finished: ${failed} failed (red stamps). Regenerate those individually`, true);
-  else toast("Batch complete — review and stamp approvals");
+  else toast("Batch complete. Review and stamp approvals");
 }
 
 async function runEngineBatch(todo, bar, label, offset, grandTotal){
@@ -1560,7 +1560,7 @@ async function runEngineBatch(todo, bar, label, offset, grandTotal){
   if(!res.ok){
     const t = await res.text();
     let msg = "Engine " + res.status;
-    try{ msg += " — " + JSON.parse(t).error.message; }catch(e){}
+    try{ msg += ": " + JSON.parse(t).error.message; }catch(e){}
     throw new Error(msg);
   }
   let doneCount = 0, failCount = 0, lastRender = 0;
@@ -1625,7 +1625,7 @@ async function runEngineBatch(todo, bar, label, offset, grandTotal){
 }
 
 function covMeter(c){
-  if(c === null) return '<span class="hint mono">—</span>';
+  if(c === null) return '<span class="hint mono">n/a</span>';
   const pct = Math.round(c * 100);
   const cls = pct >= 60 ? "" : pct >= 30 ? " warn" : " bad";
   return `<div class="coverage"><div class="meter${cls}"><i style="width:${pct}%"></i></div><span>${pct}% cov</span></div>`;
@@ -1670,7 +1670,7 @@ function renderLedger(openIds){
         </div>
       </div>
       <div class="q-body">
-        <textarea data-ans="${id}" placeholder="No answer yet — generate or write one.">${esc(q.answer)}</textarea>
+        <textarea data-ans="${id}" placeholder="No answer yet. Generate or write one.">${esc(q.answer)}</textarea>
         <div class="q-actions">
           <button class="btn small" data-gen="${id}">${q.answer ? "Regenerate" : "Generate answer"}</button>
           <select data-type="${id}" style="width:auto;padding:5px 8px;font-size:12px">
@@ -1773,10 +1773,10 @@ $("run-gaps").onclick = async () => {
     await Promise.all([w(), w(), w(), w()]);   // 4 parallel lookups; /search is free (no AI call)
     btn.disabled = false; btn.textContent = "Run gap analysis";
     renderLedger(); await persistQs();
-    toast("Gap analysis complete — scored against the engine's knowledge base");
+    toast("Gap analysis complete, scored against the engine's knowledge base");
     return;
   }
-  if(!S.docs.length) return toast("The bucket is empty — add documentation in step 1 first", true);
+  if(!S.docs.length) return toast("The bucket is empty. Add documentation in step 1 first", true);
   const inBucket = new Set(S.docs.map(d => d.name));
   for(const q of S.questions){
     const r = retrieve(q.text);
@@ -1801,13 +1801,13 @@ function renderGaps(){
   const el = $("gap-list");
   const analysed = S.questions.filter(q => q.coverage !== null).length;
   const gaps = gapRows();
-  $("gap-count").textContent = analysed ? `${gaps.length} of ${analysed} flagged` : "—";
+  $("gap-count").textContent = analysed ? `${gaps.length} of ${analysed} flagged` : "not run";
   if(!analysed){
     el.innerHTML = '<div class="empty">Run the analysis once questions are in the ledger.</div>';
     return;
   }
   if(!gaps.length){
-    el.innerHTML = '<div class="empty" style="border-color:var(--green);color:var(--green)">No gaps — every analysed question is substantiated by the bucket.</div>';
+    el.innerHTML = '<div class="empty" style="border-color:var(--green);color:var(--green)">No gaps: every analysed question is substantiated by the bucket.</div>';
     return;
   }
   // topics to add: most common missing keywords across gaps
@@ -1828,7 +1828,7 @@ function renderGaps(){
         <span class="clause" style="border-color:var(--red);color:var(--red)">${esc(q.ref)}</span>
         <div style="flex:1">
           <div style="font-size:13.5px;font-weight:500">${esc(q.text.slice(0,140))}${q.text.length > 140 ? "…" : ""}</div>
-          <div style="margin-top:3px">${miss.length ? "Bucket has nothing on: " + miss.map(k => `<span class="gap-kw">${esc(k)}</span>`).join("") : '<span class="hint mono">weak matches only — answer will lean generic</span>'}</div>
+          <div style="margin-top:3px">${miss.length ? "Bucket has nothing on: " + miss.map(k => `<span class="gap-kw">${esc(k)}</span>`).join("") : '<span class="hint mono">weak matches only, so the answer will lean generic</span>'}</div>
         </div>
         <div style="min-width:90px;text-align:right">${covMeter(q.coverage)}</div>
       </div>`).join("");
@@ -1866,7 +1866,7 @@ function renderExport(){
         <td><span class="stamp ${status === "working" ? "generated" : status}">${STAMPS[status]}</span></td>
         ${showSrc ? `<td class="mono" style="font-size:10.5px">${esc((q.sources||[]).join(", "))}</td>` : ""}
       </tr>`; }).join("") + "</tbody></table>"
-    : '<div class="empty">Nothing to export yet — generate answers in step 2' + ($("exp-approved-only").checked ? ", or untick “approved only”." : ".") + '</div>';
+    : '<div class="empty">Nothing to export yet. Generate answers in step 2' + ($("exp-approved-only").checked ? ", or untick “approved only”." : ".") + '</div>';
 }
 
 function downloadBlob(blob, name){
@@ -1992,7 +1992,7 @@ $("download-btn").onclick = async () => {
       new D.Paragraph({ text: "Generated with Countersign · " + new Date().toLocaleDateString(), spacing: { after: 400 } })
     ];
     for(const r of rows){
-      children.push(new D.Paragraph({ text: xmlSafe(r.ref + " — " + r.text), heading: D.HeadingLevel.HEADING_2, spacing: { before: 300, after: 120 } }));
+      children.push(new D.Paragraph({ text: xmlSafe(r.ref + ": " + r.text), heading: D.HeadingLevel.HEADING_2, spacing: { before: 300, after: 120 } }));
       // pass the paragraph with its line breaks intact: mdRuns strips line-anchored
       // Markdown markers before flattening them to spaces
       r.answer.split(/\n{2,}/).forEach(par =>
@@ -2001,7 +2001,7 @@ $("download-btn").onclick = async () => {
         children.push(new D.Paragraph({ children: [new D.TextRun({ text: xmlSafe("Sources: " + r.sources.join(", ")), italics: true, size: 18, color: "5B6157" })], spacing: { after: 200 } }));
     }
     if(withGaps && gaps.length){
-      children.push(new D.Paragraph({ text: "Appendix — Coverage gap report (internal)", heading: D.HeadingLevel.HEADING_1, pageBreakBefore: true, spacing: { after: 200 } }));
+      children.push(new D.Paragraph({ text: "Appendix: Coverage gap report (internal)", heading: D.HeadingLevel.HEADING_1, pageBreakBefore: true, spacing: { after: 200 } }));
       children.push(new D.Paragraph({ text: "Questions where the documentation bucket provided weak or no substantiation. Review before submission.", spacing: { after: 200 } }));
       for(const g of gaps){
         children.push(new D.Paragraph({ children: [
@@ -2056,7 +2056,7 @@ function syncSettingsUI(){
   const tokenStyle = (p === "proxy" || p === "engine");
   $("key-row").style.display = p === "claude" ? "none" : "block";
   $("key-label").textContent = tokenStyle ? "Team token (if your server requires one)" : "API key";
-  $("set-key").placeholder = tokenStyle ? "Shared team passphrase — leave blank if none" : "Paste your API key";
+  $("set-key").placeholder = tokenStyle ? "Shared team passphrase (leave blank if none)" : "Paste your API key";
   $("model-row").style.display = (p === "claude" || p === "engine") ? "none" : "block";
   $("base-row").style.display = (p === "openai" || p === "proxy" || p === "engine") ? "block" : "none";
   $("set-base").placeholder = p === "engine" ? "http://yourhost:8790"
@@ -2109,7 +2109,7 @@ function workspaceSnapshot(){
 }
 $("ws-export").onclick = () => {
   downloadBlob(new Blob([JSON.stringify(workspaceSnapshot())], { type: "application/json" }), "countersign-data.json");
-  toast("Exported — upload countersign-data.json to the same directory as this HTML file");
+  toast("Exported. Upload countersign-data.json to the same directory as this HTML file");
 };
 $("ws-import").onclick = () => $("ws-import-input").click();
 $("ws-import-input").onchange = async e => {
@@ -2195,16 +2195,16 @@ $("engine-check").onclick = async () => {
     if(!h.ok) throw new Error("bad health payload");
     $("engine-pill").textContent = "online";
     $("engine-status").textContent = `${h.docs} docs · ${h.chunks} chunks · ${h.model}` + (h.token_required ? " · token required" : "");
-    toast("Engine online — " + h.docs + " docs indexed server-side");
+    toast("Engine online: " + h.docs + " docs indexed server-side");
   }catch(err){
     $("engine-pill").textContent = "offline";
-    $("engine-status").textContent = "unreachable — is engine.js running? (" + err.message + ")";
+    $("engine-status").textContent = "unreachable. Is engine.js running? (" + err.message + ")";
     toast("Engine unreachable: " + err.message, true);
   }
 };
 $("engine-push").onclick = async () => {
   if(!engineMode()) return toast("Pick “Countersign Engine” in ⚙ AI settings first", true);
-  if(!S.docs.length) return toast("The local bucket is empty — nothing to push", true);
+  if(!S.docs.length) return toast("The local bucket is empty. Nothing to push", true);
   const btn = $("engine-push");
   btn.disabled = true;
   const docs = [...S.docs];
@@ -2243,7 +2243,7 @@ $("engine-push").onclick = async () => {
   }
   syncProviderChip();
   if(S.settings.provider === "engine" && S.settings.base)
-    $("engine-status").textContent = "configured: " + S.settings.base + " — click “Check engine”";
+    $("engine-status").textContent = "configured: " + S.settings.base + ". Click “Check engine”";
   renderDocs(); renderLedger();
   if(MISSING_LIBS.length)
     toast("Some libraries didn't load (" + MISSING_LIBS.join(", ") + "), so those formats are unavailable", true);

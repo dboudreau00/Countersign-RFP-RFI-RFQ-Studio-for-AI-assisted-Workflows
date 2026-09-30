@@ -31,17 +31,17 @@ node engine.js
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | — (required for `/answer`, `/batch`, `/proxy`) | Your Anthropic key, server-side only. `/search`, `/ingest` and `/forget` work without it. |
+| `ANTHROPIC_API_KEY` | none (required for `/answer`, `/batch`, `/proxy`) | Your Anthropic key, server-side only. `/search`, `/ingest` and `/forget` work without it. |
 | `COUNTERSIGN_TOKEN` | *(off)* | Shared secret; all POSTs must send `X-Team-Token` |
 | `PORT` | `8790` | Listen port |
 | `KB_DIR` | `<engine.js dir>/kb` | Directory of `.txt/.md/.csv/.json` sources |
 | `DATA_FILE` | `<engine.js dir>/countersign-data.json` | Workspace exported from the web app |
 | `MODEL` | `claude-sonnet-5-5` | Generation model. Set `MODEL=claude-sonnet-4-6` to keep the previous default. |
-| `ALLOW_ORIGIN` | `*` | CORS origin for browser callers — tighten in production |
+| `ALLOW_ORIGIN` | `*` | CORS origin for browser callers; tighten in production |
 | `CONCURRENCY` | `2` | Parallel upstream calls for `/batch` (max 4) |
 
 `KB_DIR` and `DATA_FILE` default to paths **next to `engine.js`**, not to the
-working directory — running `node /srv/countersign/engine.js` from `/home/you`
+working directory: running `node /srv/countersign/engine.js` from `/home/you`
 still reads `/srv/countersign/kb`. Set them explicitly if you want otherwise.
 
 ## Feeding the knowledge base
@@ -49,7 +49,7 @@ still reads `/srv/countersign/kb`. Set them explicitly if you want otherwise.
 Three ways, freely combined; everything is indexed together at boot:
 
 1. **Web-app export (recommended for PDFs/DOCX/XLSX).** Build the bucket in the
-   Countersign app — it parses binary formats in the browser — then
+   Countersign app (it parses binary formats in the browser), then
    *Export workspace file* and place `countersign-data.json` next to `engine.js`.
 2. **`kb/` directory.** Drop plain `.txt`, `.md`, `.csv`, or `.json` files in it.
 3. **`POST /ingest` at runtime.** Pushed documents are persisted into `kb/`
@@ -65,7 +65,7 @@ All POST bodies are JSON. When a team token is configured, send it as the
 { "ok": true, "docs": 42, "chunks": 1187, "model": "claude-sonnet-5-5", "token_required": true }
 ```
 
-### `POST /answer` — the main event
+### `POST /answer`: the main event
 Request:
 ```json
 {
@@ -86,12 +86,12 @@ Response:
   "model": "claude-sonnet-5-5"
 }
 ```
-`coverage` (0–1) estimates how well the knowledge base substantiates the
+`coverage` (0 to 1) estimates how well the knowledge base substantiates the
 question: it is the fraction of the question's content terms that appear
 anywhere in the KB, scaled slightly by how many chunks were retrieved. A question
 whose vocabulary is absent scores 0 regardless of how much unrelated material the
-retriever found. `missing_terms` lists the query concepts found nowhere in the KB
-— a low-coverage answer with many missing terms is your cue to add documentation
+retriever found. `missing_terms` lists the query concepts found nowhere in the KB.
+A low-coverage answer with many missing terms is your cue to add documentation
 rather than trust the output. Common RFP verbiage ("confirm", "whether",
 "outline", "state") is filtered out, so what remains is topical.
 
@@ -101,17 +101,17 @@ reason in `error.message` (for a refusal it includes the category, for example
 `Model declined to answer (cyber)`), and in `/batch` that question arrives as an
 `error` line.
 
-### `POST /search` — retrieval only, no AI call
+### `POST /search`: retrieval only, no AI call
 ```json
 { "query": "encryption key rotation", "k": 5 }
 ```
 Returns the top chunks with sources, coverage and missing terms. Free and
-instant — useful for debugging the KB or wiring "related docs" features.
-`k` defaults to 5 and is clamped to 1–20; the retriever returns at most 12 chunks
+instant, useful for debugging the KB or wiring "related docs" features.
+`k` defaults to 5 and is clamped to 1 to 20; the retriever returns at most 12 chunks
 in total, so values above that are capped by the retrieval budget rather than by
 `k`.
 
-### `POST /batch` — a whole RFP in one call
+### `POST /batch`: a whole RFP in one call
 Send an array of questions; answers **stream back as NDJSON** (one JSON object
 per line) the moment each completes, processed by a small worker pool
 (`CONCURRENCY` env, default 2, max 4) with one automatic retry on rate-limit
@@ -137,7 +137,7 @@ Stream (`Content-Type: application/x-ndjson`), one line per event:
 {"kind":"start","total":3,"model":"claude-sonnet-5-5","concurrency":2}
 {"kind":"answer","index":1,"ref":"3.2","answer":"All customer data is encrypted at rest...","sources":["security.txt"],"coverage":0.81,"chunks_used":4,"missing_terms":[],"ms":2140}
 {"kind":"answer","index":0,"ref":"3.1","answer":"Yes. Our platform supports SAML 2.0...","sources":["sso-guide.pdf"],"coverage":0.77,"chunks_used":3,"missing_terms":[],"ms":2610}
-{"kind":"error","index":2,"ref":"7.4","status":429,"message":"Upstream 429 — rate limited"}
+{"kind":"error","index":2,"ref":"7.4","status":429,"message":"Upstream 429: rate limited"}
 {"kind":"done","total":3,"succeeded":2,"failed":1,"elapsed_ms":5320}
 ```
 `answer` and `error` events also echo back the item's `id` and its original
@@ -147,12 +147,12 @@ Treat the absence of a terminal `done` event as failure: if the connection drops
 mid-stream the engine simply stops writing, and any item you never received an
 event for was not answered.
 
-Answers arrive in **completion order**, not input order — use `index`/`ref` to
+Answers arrive in **completion order**, not input order: use `index`/`ref` to
 place them. Failed items don't abort the batch. If the client disconnects
 mid-stream, the engine stops launching further upstream calls.
 
 Prefer one plain JSON response instead of a stream? Add `"stream": false` and
-you'll get `{ ...done-summary, results: [...] }` with results sorted by index —
+you'll get `{ ...done-summary, results: [...] }` with results sorted by index,
 handy for PHP or anything that dislikes chunked reads.
 
 **curl** (`-N` disables buffering so lines print live):
@@ -184,12 +184,12 @@ for (;;) {
 { "name": "SLA Policy (v2).pdf", "text": "We guarantee 99.95% uptime..." }
 { "name": "SLA Policy (v2).pdf" }
 ```
-Plain text only — parse binary formats client-side or via the web app.
+Plain text only: parse binary formats client-side or via the web app.
 Ingested documents are stored under a sanitized canonical filename (echoed back
 as `name` in the response, e.g. `SLA Policy _v2_.pdf.txt`) so the key survives
 restarts. When scanning `kb/` at boot the engine skips `README.txt` and
-`countersign-data.json` — the latter is only read via `DATA_FILE`, never as raw
-text — so a document whose name would canonicalise onto one of those is stored
+`countersign-data.json` (the latter is only read via `DATA_FILE`, never as raw
+text), so a document whose name would canonicalise onto one of those is stored
 with a leading underscore (`_README.txt`) instead of overwriting it.
 
 `/ingest` response:
@@ -201,12 +201,12 @@ with a leading underscore (`_README.txt`) instead of overwriting it.
 `truncated` is `true` when the document was longer than `max_doc_chars` and only
 the first `chars` characters were indexed. `persisted` is `false` when the text
 was indexed in memory but could not be written to `kb/`, meaning it will be gone
-after a restart — check both rather than relying on `ok` alone.
+after a restart. Check both rather than relying on `ok` alone.
 
 `/forget` requires a non-empty `name` (a request without one is a `400`, not a
 delete). It accepts either the original or the stored name and echoes the key it
 actually removed. The persisted file under `kb/` is deleted **only** when that
-key is the canonical filename — forgetting a document that came from `DATA_FILE`
+key is the canonical filename: forgetting a document that came from `DATA_FILE`
 never removes a same-named file belonging to a different document:
 ```json
 { "ok": true, "name": "SLA Policy _v2_.pdf.txt", "docs": 42, "file_removed": true }
@@ -254,7 +254,7 @@ $result = json_decode(curl_exec($ch), true);
 ## Production notes
 
 - Set `COUNTERSIGN_TOKEN` and a specific `ALLOW_ORIGIN`; serve behind HTTPS
-  (reverse-proxy with nginx/Caddy — the engine itself speaks plain HTTP).
+  (reverse-proxy with nginx/Caddy; the engine itself speaks plain HTTP).
   **`COUNTERSIGN_TOKEN` is the only access control there is**, and `/ingest` and
   `/forget` work without an API key: with the defaults (`TEAM_TOKEN` off,
   `ALLOW_ORIGIN: *`, listening on `0.0.0.0`) anyone who can reach the port can add
@@ -262,11 +262,11 @@ $result = json_decode(curl_exec($ch), true);
   the port, and bind it to localhost behind the reverse proxy.
 - The engine holds the whole index in memory: a full 60 MB knowledge base is
   roughly 55k chunks and retrieval stays well under 100 ms, but budget RAM
-  accordingly (~3–4× the raw text size).
-- No request-frequency throttling is built in — add nginx `limit_req` for
+  accordingly (about 3 to 4 times the raw text size).
+- No request-frequency throttling is built in. Add nginx `limit_req` for
   internet-facing deployments; every `/answer` call costs API credits.
 - Retrieval is lexical (TF-IDF with light suffix stemming + an acronym alias
   table), which is transparent and dependency-free but not semantic: a question
   phrased with entirely different vocabulary than your docs can miss. The `missing_terms` field
   tells you exactly when that happened. Swapping in embeddings later only
-  requires replacing the `retrieve()` function — the API contract stays the same.
+  requires replacing the `retrieve()` function; the API contract stays the same.

@@ -1487,7 +1487,10 @@ async function generateOne(q){
         tone: $("tone-select").value,
         max_words: safeLen(safeType(q.type))
       });
-      q.answer = (r.answer || "").trim();
+      const answer = (r.answer || "").trim();
+      // same rule as the local path: an answerless row stamped Generated is dropped from every export
+      if(!answer) throw new Error("the engine returned an empty answer");
+      q.answer = answer;
       q.sources = r.sources || [];
       q.coverage = r.coverage ?? null;
       q.missing = r.missing_terms || [];

@@ -1929,14 +1929,21 @@ function downloadBlob(blob, name){
 /* OOXML forbids most C0 control characters; a stray one (models occasionally emit
    vertical tabs or form feeds) makes Word refuse to open the file with a repair prompt. */
 function xmlSafe(s){
-  // OOXML forbids the C0 control characters except tab (9), LF (10) and CR (13).
-  // A stray one (models occasionally emit vertical tabs or form feeds) makes Word
-  // refuse to open the document and offer to repair it instead.
+  // OOXML forbids the C0 control characters except tab (9), LF (10) and CR (13), the
+  // noncharacters FFFE/FFFF and unpaired surrogates. A stray one (models occasionally emit
+  // vertical tabs or form feeds) makes Word refuse to open the document.
   const str = String(s == null ? "" : s);
   let out = "";
   for(let i = 0; i < str.length; i++){
     const c = str.charCodeAt(i);
-    out += (c < 32 && c !== 9 && c !== 10 && c !== 13) ? " " : str[i];
+    if(c >= 0xD800 && c <= 0xDBFF){
+      const d = str.charCodeAt(i + 1);
+      if(d >= 0xDC00 && d <= 0xDFFF){ out += str[i] + str[i + 1]; i++; }
+      else out += " ";
+      continue;
+    }
+    const bad = (c < 32 && c !== 9 && c !== 10 && c !== 13) || (c >= 0xDC00 && c <= 0xDFFF) || c === 0xFFFE || c === 0xFFFF;
+    out += bad ? " " : str[i];
   }
   return out;
 }
@@ -2062,7 +2069,7 @@ $("download-btn").onclick = async () => {
       children.push(new D.Paragraph({ text: "Questions where the documentation bucket provided weak or no substantiation. Review before submission.", spacing: { after: 200 } }));
       for(const g of gaps){
         children.push(new D.Paragraph({ children: [
-          new D.TextRun({ text: g.ref + " (" + Math.round(g.coverage * 100) + "% coverage): ", bold: true }),
+          new D.TextRun({ text: xmlSafe(g.ref) + " (" + Math.round(g.coverage * 100) + "% coverage): ", bold: true }),
           new D.TextRun({ text: xmlSafe(g.text) })
         ], spacing: { after: 60 } }));
         const miss = missFor(g);

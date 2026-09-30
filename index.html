@@ -1678,12 +1678,14 @@ function renderLedger(openIds){
   openIds = openIds || [...document.querySelectorAll(".q-row.open")].map(r => r.dataset.id);
   // A background generation can re-render while the user is mid-sentence in an answer.
   // The textarea only commits on change/blur, so rebuilding innerHTML would throw the
-  // edit away: commit whatever is in the focused box first, and restore the caret after.
+  // edit away: commit the focused box first, and restore the caret after. Only a box the
+  // user typed in counts: a box that merely has focus still shows the old answer, and
+  // committing it would overwrite the answer that just arrived.
   const active = document.activeElement;
   let restore = null;
   if(active && active.dataset && active.dataset.ans){
     const q = S.questions.find(x => x.id === active.dataset.ans);
-    if(q && q.answer !== active.value){
+    if(q && active.dataset.dirty && q.answer !== active.value){
       q.answer = active.value;
       if(q.status === "draft" && active.value) q.status = "generated";
       persistQs();
@@ -1729,6 +1731,7 @@ function renderLedger(openIds){
     h.closest(".q-row").classList.toggle("open"));
   el.querySelectorAll("[data-ans]").forEach(t => {
     t.onclick = e => e.stopPropagation();
+    t.oninput = () => { t.dataset.dirty = "1"; };
     t.onchange = () => {
       const q = S.questions.find(x => x.id === t.dataset.ans);
       q.answer = t.value;

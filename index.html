@@ -752,45 +752,56 @@ const store = {
 
 /* Docs are split across cs-docs-0..N keys (each < 5MB), described by cs-docs-meta. */
 function serializableDoc(d){ return { id:d.id, name:d.name, type:d.type, size:d.size, chars:d.chars, text:d.text }; }
-let _persistTimer = null, _lastShardCount = 0, _docsGen = 0;
+let _persistTimer = null, _lastShardCount = 0, _docsGen = 0, _docsSaving = false, _docsSaveAgain = false;
 async function persistDocs(){
   clearTimeout(_persistTimer);
-  _persistTimer = setTimeout(async () => {
-    const shards = [];
-    let cur = [], curSize = 2;
-    for(const d of S.docs){
-      const s = JSON.stringify(serializableDoc(d));
-      if(curSize + s.length > SHARD_BUDGET && cur.length){ shards.push(cur); cur = []; curSize = 2; }
-      cur.push(serializableDoc(d)); curSize += s.length + 1;
-    }
-    if(cur.length) shards.push(cur);
-    /* Write the new shards under a fresh generation, then publish them by writing the
-       manifest, then delete the old generation. The manifest write is the single
-       commit point: until it lands the old generation is still whole, so a storage
-       quota failure part-way through can never leave loadDocs reading a half-written
-       bucket. (The original wrote the manifest first, which had exactly that hazard.) */
-    const gen = (_docsGen + 1) % 1000;
-    let written = 0;
-    for(let i = 0; i < shards.length; i++){
-      if(!(await store.save(`cs-docs-g${gen}-${i}`, shards[i]))) break;
-      written++;
-    }
-    if(written < shards.length){
-      for(let i = 0; i < written; i++) await store.del(`cs-docs-g${gen}-${i}`);   // roll back
-      toast("Couldn't save the whole bucket to browser storage. Use “Export workspace file” to keep it", true);
-      return;                       // previous generation and manifest remain intact
-    }
-    if(!(await store.save("cs-docs-meta", { gen, shards: shards.length, count: S.docs.length, at: Date.now() }))){
-      for(let i = 0; i < written; i++) await store.del(`cs-docs-g${gen}-${i}`);
-      return;
-    }
-    for(let i = 0; i < _lastShardCount; i++){
-      await store.del(`cs-docs-g${_docsGen}-${i}`);
-      await store.del("cs-docs-" + i);        // also clears the pre-generation layout
-    }
-    _docsGen = gen;
-    _lastShardCount = shards.length;
-  }, 400);
+  _persistTimer = setTimeout(runDocsSave, 400);
+}
+/* One save at a time. On a slow backend (Claude.ai's window.storage is a network round
+   trip per key) a second save could start before the first published its manifest, pick
+   the same generation, and then delete the shards the first save had just written. */
+async function runDocsSave(){
+  if(_docsSaving){ _docsSaveAgain = true; return; }
+  _docsSaving = true;
+  try{
+    do{ _docsSaveAgain = false; await saveDocsOnce(); }while(_docsSaveAgain);
+  }finally{ _docsSaving = false; }
+}
+async function saveDocsOnce(){
+  const shards = [];
+  let cur = [], curSize = 2;
+  for(const d of S.docs){
+    const s = JSON.stringify(serializableDoc(d));
+    if(curSize + s.length > SHARD_BUDGET && cur.length){ shards.push(cur); cur = []; curSize = 2; }
+    cur.push(serializableDoc(d)); curSize += s.length + 1;
+  }
+  if(cur.length) shards.push(cur);
+  /* Write the new shards under a fresh generation, then publish them by writing the
+     manifest, then delete the old generation. The manifest write is the single
+     commit point: until it lands the old generation is still whole, so a storage
+     quota failure part-way through can never leave loadDocs reading a half-written
+     bucket. (The original wrote the manifest first, which had exactly that hazard.) */
+  const gen = (_docsGen + 1) % 1000;
+  let written = 0;
+  for(let i = 0; i < shards.length; i++){
+    if(!(await store.save(`cs-docs-g${gen}-${i}`, shards[i]))) break;
+    written++;
+  }
+  if(written < shards.length){
+    for(let i = 0; i < written; i++) await store.del(`cs-docs-g${gen}-${i}`);   // roll back
+    toast("Couldn't save the whole bucket to browser storage. Use “Export workspace file” to keep it", true);
+    return;                       // previous generation and manifest remain intact
+  }
+  if(!(await store.save("cs-docs-meta", { gen, shards: shards.length, count: S.docs.length, at: Date.now() }))){
+    for(let i = 0; i < written; i++) await store.del(`cs-docs-g${gen}-${i}`);
+    return;
+  }
+  for(let i = 0; i < _lastShardCount; i++){
+    await store.del(`cs-docs-g${_docsGen}-${i}`);
+    await store.del("cs-docs-" + i);        // also clears the pre-generation layout
+  }
+  _docsGen = gen;
+  _lastShardCount = shards.length;
 }
 async function loadDocs(){
   const meta = await store.load("cs-docs-meta");

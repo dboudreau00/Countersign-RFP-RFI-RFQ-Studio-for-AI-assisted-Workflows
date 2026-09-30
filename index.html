@@ -1981,7 +1981,12 @@ $("download-btn").onclick = async () => {
 
   if(S.exportFmt === "csv"){
     const head = ["Ref","Type","Question","Response","Status"].concat(showSrc ? ["Sources"] : []);
-    const q = v => '"' + String(v).replace(/"/g,'""') + '"';
+    // Question text comes verbatim from the issuer's file. A cell starting with = + - @
+    // (or tab/CR) is evaluated as a formula by Excel and Sheets, so prefix a quote (OWASP).
+    const q = v => {
+      const s = String(v);
+      return '"' + (/^[=+\-@\t\r]/.test(s) ? "'" + s : s).replace(/"/g,'""') + '"';
+    };
     const csv = [head.map(q).join(",")].concat(rows.map(r =>
       [r.ref, QTYPES[r.type] || "Narrative", r.text, r.answer, STAMPS[r.status]].concat(showSrc ? [r.sources.join("; ")] : []).map(q).join(",")
     )).join("\r\n");

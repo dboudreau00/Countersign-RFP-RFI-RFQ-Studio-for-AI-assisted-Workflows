@@ -1624,18 +1624,35 @@ $("generate-all").onclick = async () => {
    ledger the moment each completes. The engine rejects more than ENGINE_MAX_BATCH
    questions in one call, so a long RFP is sent as consecutive batches. */
 const ENGINE_MAX_BATCH = 100;
+/* The engine rejects the whole call if any one question is outside these limits
+   (questionOk() in engine.js), which would fail up to 100 other rows with it. */
+const ENGINE_MIN_QUESTION = 3, ENGINE_MAX_QUESTION = 4000;
+const engineAccepts = (text) => {
+  const s = String(text || "");
+  return s.trim().length >= ENGINE_MIN_QUESTION && s.length <= ENGINE_MAX_QUESTION;
+};
 async function generateAllViaEngine(todo, bar, label){
-  todo.forEach(q => { q.status = "working"; });
+  const refused = todo.filter(q => !engineAccepts(q.text));
+  refused.forEach(q => { q.status = "error"; });
+  if(refused.length)
+    toast(`${refused.length} question${refused.length === 1 ? "" : "s"} can't go to the engine (${refused.slice(0, 3).map(q => q.ref).join(", ")}${refused.length > 3 ? ", …" : ""}): it takes ${ENGINE_MIN_QUESTION} to ${ENGINE_MAX_QUESTION} characters. Shorten or split ${refused.length === 1 ? "it" : "them"}`, true);
+  const send = todo.filter(q => !refused.includes(q));
+  send.forEach(q => { q.status = "working"; });
   renderLedger();
-  let done = 0, failed = 0;
-  for(let i = 0; i < todo.length; i += ENGINE_MAX_BATCH){
-    const slice = todo.slice(i, i + ENGINE_MAX_BATCH);
-    const r = await runEngineBatch(slice, bar, label, done, todo.length);
+  if(!send.length){
+    label.textContent = `0 / ${todo.length} · ${refused.length} failed`;
+    await persistQs();
+    return;
+  }
+  let done = 0, failed = refused.length;
+  for(let i = 0; i < send.length; i += ENGINE_MAX_BATCH){
+    const slice = send.slice(i, i + ENGINE_MAX_BATCH);
+    const r = await runEngineBatch(slice, bar, label, done, send.length);
     done += r.done; failed += r.failed;
   }
   renderLedger(); await persistQs();
   // anything the stream never reported on is a failure, not a silent success
-  const stuck = todo.filter(q => q.status === "working");
+  const stuck = send.filter(q => q.status === "working");
   let stuckFailed = 0;
   stuck.forEach(q => {
     if(q.answer){ q.status = "generated"; }

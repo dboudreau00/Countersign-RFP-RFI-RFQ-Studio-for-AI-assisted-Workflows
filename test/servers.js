@@ -138,8 +138,12 @@ async function main() {
     engine.addDoc("sla", "Our service levels guarantee uptime. Pricing is per seat.", false);
     const quiet = console.log; console.log = () => {}; engine.reindex(); console.log = quiet;
     check("a plural query term finds the singular in the docs", engine.retrieve("Describe the services and levels.").missing_terms.length === 0);
-    check("an aliased word (pricing) is not reported as missing when its alias is documented",
-      !engine.retrieve("Describe your pricing.").missing_terms.includes("pric") && engine.retrieve("Describe your pricing.").missing_terms.length === 0);
+    engine.KB.docs.clear();
+    engine.addDoc("alias", "Availability is measured monthly. The total cost is fixed per seat.", false);
+    console.log = () => {}; engine.reindex(); console.log = quiet;
+    const aliased = engine.retrieve("What is your uptime? Describe your pricing.").missing_terms;
+    check("a term is covered when only its alias is documented (uptime/availability, pricing/cost)", !aliased.length, aliased.join(", "));
+    check("a term is still missing when none of its aliases is documented", engine.retrieve("Do you support SSO?").missing_terms.length > 0);
     engine.KB.docs.clear();
     for (let i = 0; i < 30; i++) engine.addDoc("big" + i, ("Backups run hourly number " + i + ". ").repeat(80), false);
     console.log = () => {}; engine.reindex(); console.log = quiet;
@@ -151,14 +155,17 @@ async function main() {
     engine.KB.docs.clear();
     engine.addDoc("lf", doc, false); engine.addDoc("crlf", doc.replace(/\n/g, "\r\n"), false);
     console.log = () => {}; engine.reindex(); console.log = quiet;
-    const t0 = Date.now();
-    engine.retrieve(Array.from({ length: 20000 }, (_, i) => "term" + i).join(" "));
-    check("retrieve bounds the number of query terms", Date.now() - t0 < 500, `${Date.now() - t0}ms`);
+    const flood = engine.retrieve(Array.from({ length: 20000 }, (_, i) => "term" + i).join(" ")).missing_terms.length;
+    check("retrieve uses at most 80 distinct query terms", flood === 80, String(flood));
 
     let r = await request(enginePort, "GET", "/health");
     check("engine default model is claude-sonnet-5-5", r.json && r.json.model === "claude-sonnet-5-5", r.text);
     r = await request(enginePort, "POST", "/answer", { question: "How is data encrypted at rest?" });
     check("engine requires the team token", r.status === 401, String(r.status));
+    r = await request(enginePort, "POST", "/answer", { question: "How is data encrypted at rest?" }, { "X-Team-Token": TOKEN + "x" });
+    check("engine rejects a team token of the wrong length", r.status === 401, String(r.status));
+    r = await request(enginePort, "POST", "/answer", { question: "How is data encrypted at rest?" }, { "X-Team-Token": "x".repeat(TOKEN.length) });
+    check("engine rejects a team token of the right length but the wrong value", r.status === 401, String(r.status));
     r = await request(enginePort, "POST", "/search", JSON.stringify({ query: "encryption" }), { ...T, "Content-Type": "text/plain" });
     check("engine refuses a non-JSON body (no preflight-free cross-site POSTs)", r.status === 415, String(r.status));
     r = await request(enginePort, "POST", "/answer", { question: "How is data encrypted at rest?" }, T);
@@ -210,6 +217,13 @@ async function main() {
     check("/forget without a name is rejected", r.status === 400, String(r.status));
     r = await request(enginePort, "POST", "/forget", { name: "win.txt" }, T);
     check("/forget removes the persisted file", r.status === 200 && !fs.existsSync(path.join(kb, "win.txt")), r.text);
+
+    for (let i = 0; i < 4; i++) await request(enginePort, "POST", "/ingest", { name: "bulk" + i + ".md", text: "Encryption keys rotate yearly under AES-256-GCM. ".repeat(100) }, T);
+    for (const k of [5, 13, 20]) {
+      r = await request(enginePort, "POST", "/search", { query: "encryption keys rotate", k }, T);
+      check(`/search returns k=${k} chunks when more match`, r.json && r.json.chunks.length === k, r.json ? String(r.json.chunks.length) : r.text);
+    }
+    for (let i = 0; i < 4; i++) await request(enginePort, "POST", "/forget", { name: "bulk" + i + ".md" }, T);
 
     await documentChecks(T);
     await proxyChecks("proxy.js", proxyPort, "/rfp/proxy");

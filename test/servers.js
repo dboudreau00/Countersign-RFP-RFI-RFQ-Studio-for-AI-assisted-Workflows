@@ -129,6 +129,17 @@ async function main() {
     try { engine.retrieve("Will the Constructor maintain insurance for constructors?"); } catch (e) { err = e.message; }
     check("a question containing \"constructor\" does not crash retrieval", !err, err);
 
+    // stemming: singular/plural/gerund forms of one word must meet at one stem
+    const stemGroups = [["service", "services"], ["type", "types"], ["license", "licenses", "licensing"], ["price", "prices", "pricing"],
+      ["store", "stored", "storing"], ["process", "processes"], ["policy", "policies"], ["backup", "backups"], ["database", "databases"]];
+    const badStems = stemGroups.filter((g) => new Set(g.map(engine.stem)).size !== 1).map((g) => g.join("/"));
+    check("stem() maps inflections of one word to one stem", !badStems.length, badStems.join(", "));
+    engine.KB.docs.clear();
+    engine.addDoc("sla", "Our service levels guarantee uptime. Pricing is per seat.", false);
+    const quiet = console.log; console.log = () => {}; engine.reindex(); console.log = quiet;
+    check("a plural query term finds the singular in the docs", engine.retrieve("Describe the services and levels.").missing_terms.length === 0);
+    check("an aliased word (pricing) is not reported as missing when its alias is documented",
+      !engine.retrieve("Describe your pricing.").missing_terms.includes("pric") && engine.retrieve("Describe your pricing.").missing_terms.length === 0);
     let r = await request(enginePort, "GET", "/health");
     check("engine default model is claude-sonnet-5-5", r.json && r.json.model === "claude-sonnet-5-5", r.text);
     r = await request(enginePort, "POST", "/answer", { question: "How is data encrypted at rest?" });

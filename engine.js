@@ -82,12 +82,21 @@ const STOP = new Set(("the a an and or of to in for with on is are does do your 
 /* Light stemmer so query/doc inflections match ("supports"→"support", "policies"→"policy").
    Must be applied identically at index time (termFreqs) and query time — tf/df keys are stems. */
 const stem = (w) => {
+  const base = stripSuffix(w);
+  // Fold a trailing "e" so "service"/"services", "type"/"types", "license"/"licensing"
+  // and "price"/"pricing" meet at one stem (stripping "es"/"ing" alone left "servic" vs "service").
+  return base.length > 3 && base.endsWith("e") ? base.slice(0, -1) : base;
+};
+function stripSuffix(w) {
   if (w.length > 4 && w.endsWith("ies")) return w.slice(0, -3) + "y";
   if (w.length > 5 && w.endsWith("ing")) return w.slice(0, -3);
-  if (w.length > 4 && (w.endsWith("ed") || w.endsWith("es"))) return w.slice(0, -2);
+  // "es" is only a plural marker after a sibilant (processes, boxes, matches); elsewhere
+  // it is just "s" after a stem ending in "e" (services, types), so drop one letter only.
+  if (w.length > 4 && w.endsWith("es")) return /(s|x|z|ch|sh)es$/.test(w) ? w.slice(0, -2) : w.slice(0, -1);
+  if (w.length > 4 && w.endsWith("ed")) return w.slice(0, -2);
   if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) return w.slice(0, -1);
   return w;
-};
+}
 /* Query-side tokenizer. Two-letter words are dropped as noise EXCEPT the ones the
    alias table knows about ("dr", "sla"…), otherwise those aliases could never fire. */
 const tokenize = (s) => [...new Set(String(s).toLowerCase().replace(/[^a-z0-9 ]/g, " ")
@@ -235,7 +244,10 @@ function retrieve(question, budget = CONTEXT_BUDGET) {
     picked.push(s); sources.add(s.ch.doc); used += s.ch.text.length;
     if (picked.length >= 12) break;
   }
-  const inKB = (t) => !!KB.df[t] || (ALIASES[t] || []).some(a => KB.df[stem(a)]);
+  // ALIASES is keyed on unstemmed words, so look an alias up by the word the user wrote
+  // (a stemmed key like "uptim" or "pric" can never match "uptime"/"pricing").
+  const rawOf = new Map(rawTerms.map(r => [stem(r), r]));
+  const inKB = (t) => !!KB.df[t] || (ALIASES[rawOf.get(t)] || []).some(a => KB.df[stem(a)]);
   /* Coverage is how well the KB substantiates the QUESTION, so it is driven by which of
      the question's terms appear at all; retrieval depth only modulates it. (Adding a flat
      0.4 for "we found 6 chunks" put a floor under every score, so on any KB with a handful

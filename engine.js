@@ -249,10 +249,16 @@ function retrieve(question, budget = CONTEXT_BUDGET, maxChunks = 12) {
     picked.push(s); sources.add(s.ch.doc); used += s.ch.text.length;
     if (picked.length >= maxChunks) break;
   }
-  // ALIASES is keyed on unstemmed words, so look an alias up by the word the user wrote
-  // (a stemmed key like "uptim" or "pric" can never match "uptime"/"pricing").
-  const rawOf = new Map(rawTerms.map(r => [stem(r), r]));
-  const inKB = (t) => !!KB.df[t] || (ALIASES[rawOf.get(t)] || []).some(a => KB.df[stem(a)]);
+  // ALIASES is keyed on unstemmed words, so look an alias up by the words the user wrote
+  // (a stemmed key like "uptim" or "pric" can never match "uptime"/"pricing"). Several words
+  // can share a stem ("pricing", "prices"), and any of them may carry the alias.
+  const rawsOf = new Map();
+  for (const r of rawTerms) {
+    const s = stem(r);
+    if (!rawsOf.has(s)) rawsOf.set(s, []);
+    rawsOf.get(s).push(r);
+  }
+  const inKB = (t) => !!KB.df[t] || rawsOf.get(t).some(r => (ALIASES[r] || []).some(a => KB.df[stem(a)]));
   /* Coverage is how well the KB substantiates the QUESTION, so it is driven by which of
      the question's terms appear at all; retrieval depth only modulates it. (Adding a flat
      0.4 for "we found 6 chunks" put a floor under every score, so on any KB with a handful
@@ -284,7 +290,8 @@ function retrieve(question, budget = CONTEXT_BUDGET, maxChunks = 12) {
     sources: [...sources],
     coverage,
     chunks_used: picked.length,
-    missing_terms: askedTerms.filter(t => !inKB(t)),
+    // the words the user wrote: a stem such as "mobil" or "sourc" is no use in a gap report
+    missing_terms: askedTerms.filter(t => !inKB(t)).map(t => rawsOf.get(t)[0]),
   };
 }
 

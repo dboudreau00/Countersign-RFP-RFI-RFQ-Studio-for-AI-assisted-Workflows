@@ -145,6 +145,14 @@ async function main() {
     check("a term is covered when only its alias is documented (uptime/availability, pricing/cost)", !aliased.length, aliased.join(", "));
     check("a term is still missing when none of its aliases is documented", engine.retrieve("Do you support SSO?").missing_terms.length > 0);
     engine.KB.docs.clear();
+    engine.addDoc("x", "Backups run hourly.", false);
+    console.log = () => {}; engine.reindex(); console.log = quiet;
+    const reported = engine.retrieve("Is there a mobile app, source escrow and a regime for the centre?").missing_terms;
+    const asked = ["mobile", "source", "escrow", "regime", "centre"];
+    check("missing terms are the words the user wrote, not stems", asked.every((w) => reported.includes(w)), reported.join(", "));
+    const dup = engine.retrieve("Describe the services and the service levels.").missing_terms;
+    check("a missing term is reported once even when two forms were asked", dup.filter((w) => /^service/.test(w)).length === 1, dup.join(", "));
+    engine.KB.docs.clear();
     for (let i = 0; i < 30; i++) engine.addDoc("big" + i, ("Backups run hourly number " + i + ". ").repeat(80), false);
     console.log = () => {}; engine.reindex(); console.log = quiet;
     check("retrieve(maxChunks) can return more than the default 12", engine.retrieve("backups hourly", 1e9, 20).ranked.length === 20 && engine.retrieve("backups hourly").ranked.length <= 12);

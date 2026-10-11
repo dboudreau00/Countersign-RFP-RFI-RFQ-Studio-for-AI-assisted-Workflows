@@ -688,7 +688,7 @@ const CHUNK_SIZE = 1100;        // retrieval chunk size (chars)
 const SHARD_BUDGET = 4.2e6;     // stay under 5MB per storage key; docs are sharded across keys
 
 const $ = (id) => document.getElementById(id);
-const esc = (s) => (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 // 0 must read as "0 KB". An empty bucket claiming "1 KB indexed" looks like a bug
 const fmtKB = (n) => n > 1e6 ? (n/1e6).toFixed(1)+" MB" : (n > 0 ? Math.max(1,Math.round(n/1024)) : 0)+" KB";
 const uid = () => Math.random().toString(36).slice(2,9);

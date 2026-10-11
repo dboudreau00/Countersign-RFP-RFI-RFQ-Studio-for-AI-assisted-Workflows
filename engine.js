@@ -223,7 +223,7 @@ const expandTerms = (terms) => {
   return [...out];
 };
 
-function retrieve(question, budget = CONTEXT_BUDGET) {
+function retrieve(question, budget = CONTEXT_BUDGET, maxChunks = 12) {
   // Two term sets. `qTerms` is expanded with acronym aliases (ALIASES is keyed on
   // unstemmed words) and drives chunk scoring, so "SSO" can find "single sign-on".
   // `askedTerms` is what the user actually wrote, and is what coverage and
@@ -247,7 +247,7 @@ function retrieve(question, budget = CONTEXT_BUDGET) {
   for (const s of scored) {
     if (used + s.ch.text.length > budget) continue;
     picked.push(s); sources.add(s.ch.doc); used += s.ch.text.length;
-    if (picked.length >= 12) break;
+    if (picked.length >= maxChunks) break;
   }
   // ALIASES is keyed on unstemmed words, so look an alias up by the word the user wrote
   // (a stemmed key like "uptim" or "pric" can never match "uptime"/"pricing").
@@ -397,7 +397,9 @@ const routes = {
     if (typeof body.query !== "string" || body.query.length > MAX_QUESTION_CHARS)
       return fail(res, 400, `Provide { query: string } of at most ${MAX_QUESTION_CHARS} characters`);
     const k = Math.min(Math.max(parseInt(body.k, 10) || 5, 1), 20);
-    const r = retrieve(body.query, CHUNK_SIZE * (k + 1));
+    // chunks are up to CHUNK_SIZE+200 long and retrieve() stops at 12 by default, so both
+    // the budget and the count must follow k or k>12 silently returned only 12
+    const r = retrieve(body.query, (CHUNK_SIZE + 200) * k, k);
     send(res, 200, {
       query: body.query,
       coverage: Math.round(r.coverage * 100) / 100,

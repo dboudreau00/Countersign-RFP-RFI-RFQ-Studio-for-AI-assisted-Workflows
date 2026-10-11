@@ -54,6 +54,11 @@ const CHUNK_SIZE     = 1100;   // chars per retrieval chunk
 const CONTEXT_BUDGET = 11000;  // chars of retrieved context per answer
 const MAX_BODY_BYTES = 1_500_000; // /ingest can carry a whole document
 const MAX_DOC_CHARS  = 220000;
+// Retrieval cost grows with (query terms x chunks); an unbounded question could pin the
+// event loop for tens of seconds (a 20k-term question took ~22s on a 60k-chunk KB).
+const MAX_QUESTION_CHARS = 4000;
+const MAX_QUERY_TERMS    = 80;
+const MAX_TONE_CHARS     = 80;
 const CONCURRENCY    = Math.min(Math.max(parseInt(process.env.CONCURRENCY || "2", 10) || 2, 1), 4);
 const MAX_BATCH      = 100;
 // Current Claude models think before answering and thinking tokens count against
@@ -224,7 +229,7 @@ function retrieve(question, budget = CONTEXT_BUDGET) {
   // `askedTerms` is what the user actually wrote, and is what coverage and
   // missing_terms are measured over: reporting the expansions would tell someone whose
   // docs say "SSO" that they are missing documentation on "single" and "sign".
-  const rawTerms = tokenize(question);
+  const rawTerms = tokenize(question).slice(0, MAX_QUERY_TERMS);
   const askedTerms = [...new Set(rawTerms.map(stem))];
   const qTerms = [...new Set(expandTerms(rawTerms).map(stem))];
   const N = Math.max(1, KB.chunks.length);
@@ -286,17 +291,19 @@ function retrieve(question, budget = CONTEXT_BUDGET) {
 /* ================================================================
    Generation
 ================================================================ */
-const TYPE_RULES = {
+const TYPE_RULES = Object.assign(Object.create(null), {
   compliance: 'This is a COMPLIANCE question: open with a one-word verdict ("Yes.", "No." or "Partially."), then substantiate briefly. Only answer "Yes" if the reference material supports it.',
   technical:  "This is a TECHNICAL question: be concrete about architecture, standards and mechanisms; evaluators are engineers. Avoid marketing language.",
   commercial: "This is a COMMERCIAL question: describe the pricing/licensing model and flexibility without quoting exact figures unless they appear in the reference material.",
   narrative:  "This is a NARRATIVE question: tell a credible, client-focused story about capability and approach.",
-};
+});
 
 function buildPrompt(question, retrieval, opts) {
-  const tone = opts.tone || "professional and precise";
-  const words = Math.min(parseInt(opts.max_words, 10) || 220, 500);
-  const typeRule = TYPE_RULES[opts.type] || "";
+  // tone is caller-supplied text that lands inside the system-style prompt: keep it to one
+  // short line of plain text (no newlines to smuggle in extra instructions, no objects).
+  const tone = (typeof opts.tone === "string" ? opts.tone.replace(/\s+/g, " ").trim().slice(0, MAX_TONE_CHARS) : "") || "professional and precise";
+  const words = Math.min(Math.max(parseInt(opts.max_words, 10) || 220, 20), 500);
+  const typeRule = (typeof opts.type === "string" && TYPE_RULES[opts.type]) || "";
   return `You are a senior proposal writer for a SaaS vendor, drafting an answer to one RFP question.
 
 Write in first-person plural ("we", "our platform"), tone: ${tone}. Target about ${words} words. ${typeRule} Be specific and confident; never invent certifications, customers, SLAs or numbers that are not in the reference material. If the reference material doesn't cover something, answer at the level it supports and note what can be confirmed on request. Respond with the answer text only: no headings, no preamble.
@@ -352,16 +359,19 @@ function send(res, code, obj) {
 }
 const fail = (res, code, message) => send(res, code, { error: { type: "engine_error", message } });
 
+// Hash both sides so the compare is constant-time in the token's length as well.
+const sha = (s) => crypto.createHash("sha256").update(String(s || ""), "utf8").digest();
 function tokenOk(given) {
-  const a = Buffer.from(String(given || ""), "utf8");
-  const b = Buffer.from(TEAM_TOKEN, "utf8");
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  return crypto.timingSafeEqual(sha(given), sha(TEAM_TOKEN));
 }
+const questionOk = (q) => typeof q === "string" && q.trim().length >= 3 && q.length <= MAX_QUESTION_CHARS;
+
+const messagesOk = (m) => Array.isArray(m) && m.length > 0 && m.every((x) => x && typeof x === "object" && !Array.isArray(x));
 
 const routes = {
   "/answer": async (res, body) => {
-    if (typeof body.question !== "string" || body.question.trim().length < 3)
-      return fail(res, 400, "Provide { question: string }");
+    if (!questionOk(body.question))
+      return fail(res, 400, `Provide { question: string } of at most ${MAX_QUESTION_CHARS} characters`);
     const retrieval = retrieve(body.question);
     const up = await callClaude({
       model: MODEL,
@@ -384,7 +394,8 @@ const routes = {
   },
 
   "/search": async (res, body) => {
-    if (typeof body.query !== "string") return fail(res, 400, "Provide { query: string }");
+    if (typeof body.query !== "string" || body.query.length > MAX_QUESTION_CHARS)
+      return fail(res, 400, `Provide { query: string } of at most ${MAX_QUESTION_CHARS} characters`);
     const k = Math.min(Math.max(parseInt(body.k, 10) || 5, 1), 20);
     const r = retrieve(body.query, CHUNK_SIZE * (k + 1));
     send(res, 200, {
@@ -442,8 +453,8 @@ const routes = {
       return fail(res, 400, "Provide { questions: [{ question, ref?, id?, type?, tone?, max_words? }] }");
     if (items.length > MAX_BATCH) return fail(res, 400, `Max ${MAX_BATCH} questions per batch`);
     for (const [i, it] of items.entries())
-      if (typeof (it && it.question) !== "string" || it.question.trim().length < 3)
-        return fail(res, 400, `questions[${i}].question must be a non-empty string`);
+      if (!questionOk(it && it.question))
+        return fail(res, 400, `questions[${i}].question must be a string of 3-${MAX_QUESTION_CHARS} characters`);
 
     const streaming = body.stream !== false;   // default: stream NDJSON lines as answers complete
     const t0 = Date.now();
@@ -522,7 +533,7 @@ const routes = {
   },
 
   "/proxy": async (res, body) => {  // web-app compatibility: raw pass-through
-    if (!Array.isArray(body.messages)) return fail(res, 400, "Body must be Anthropic /v1/messages JSON");
+    if (!messagesOk(body.messages)) return fail(res, 400, "Body must be Anthropic /v1/messages JSON");
     const up = await callClaude({
       model: MODEL,
       // Cap must stay above the app's largest request ("Extract questions" returns a

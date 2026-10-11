@@ -67,8 +67,12 @@ if ($raw === false || strlen($raw) === 0) fail(400, 'Empty body');
 if (strlen($raw) > $MAX_BODY_BYTES)       fail(413, 'Request too large');
 
 $body = json_decode($raw, true);
-if (!is_array($body) || !isset($body['messages']) || !is_array($body['messages']))
+if (!is_array($body) || !isset($body['messages']) || !is_array($body['messages'])
+    || count($body['messages']) === 0 || array_keys($body['messages']) !== range(0, count($body['messages']) - 1))
     fail(400, 'Body must be Anthropic /v1/messages JSON');
+foreach ($body['messages'] as $m) {
+    if (!is_array($m)) fail(400, 'Body must be Anthropic /v1/messages JSON');
+}
 
 // Enforce server-side limits: model allowlist + token cap. Strip anything else exotic.
 $model = in_array($body['model'] ?? '', $ALLOWED_MODELS, true) ? $body['model'] : $DEFAULT_MODEL;
@@ -89,6 +93,7 @@ curl_setopt_array($ch, [
     CURLOPT_POSTFIELDS     => json_encode($payload),
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_TIMEOUT        => 120,
+    CURLOPT_CONNECTTIMEOUT => 10,
     CURLOPT_HTTPHEADER     => [
         'Content-Type: application/json',
         'x-api-key: ' . $API_KEY,

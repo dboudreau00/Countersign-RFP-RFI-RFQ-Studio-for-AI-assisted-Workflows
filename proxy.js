@@ -50,10 +50,9 @@ const fail = (res, code, message) =>
 
 /* Constant-time compare, to match proxy.php's hash_equals() */
 function tokenOk(given) {
-  const a = Buffer.from(String(given || ""), "utf8");
-  const b = Buffer.from(TEAM_TOKEN, "utf8");
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
+  // hash both sides: constant-time in the token's length too
+  const sha = (s) => crypto.createHash("sha256").update(String(s || ""), "utf8").digest();
+  return crypto.timingSafeEqual(sha(given), sha(TEAM_TOKEN));
 }
 
 const server = http.createServer((req, res) => {
@@ -99,7 +98,8 @@ const server = http.createServer((req, res) => {
     let body;
     try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); }
     catch { return fail(res, 400, "Invalid JSON"); }
-    if (!Array.isArray(body?.messages))
+    const m = body?.messages;
+    if (!Array.isArray(m) || !m.length || !m.every((x) => x && typeof x === "object" && !Array.isArray(x)))
       return fail(res, 400, "Body must be Anthropic /v1/messages JSON");
 
     const payload = {

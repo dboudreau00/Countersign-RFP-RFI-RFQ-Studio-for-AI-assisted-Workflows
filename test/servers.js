@@ -286,6 +286,14 @@ async function main() {
     check(`${name} replaces an unlisted model with claude-sonnet-5-5`, lastBody().model === "claude-sonnet-5-5", lastBody().model);
     check(`${name} caps max_tokens at 16384`, lastBody().max_tokens === 16384, String(lastBody().max_tokens));
     check(`${name} forwards only model, max_tokens, messages and system`, Object.keys(lastBody()).every((k) => ["model", "max_tokens", "messages", "system"].includes(k)), JSON.stringify(Object.keys(lastBody())));
+    r = await request(port, "POST", urlPath, { messages: [{ role: "user", content: "hi" }] }, { "X-Team-Token": TOKEN + "x" });
+    check(`${name} rejects a team token of the wrong length`, r.status === 401, String(r.status));
+    r = await request(port, "POST", urlPath, { messages: [{ role: "user", content: "hi" }] }, { "X-Team-Token": "x".repeat(TOKEN.length) });
+    check(`${name} rejects a team token of the right length but wrong value`, r.status === 401, String(r.status));
+    for (const messages of [[], ["hi"], { a: { role: "user", content: "hi" } }, null]) {
+      r = await request(port, "POST", urlPath, { messages }, T);
+      check(`${name} rejects malformed messages ${JSON.stringify(messages)}`, r.status === 400, String(r.status));
+    }
     for (const model of ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-haiku-4-5-20251001"]) {
       await request(port, "POST", urlPath, { model, max_tokens: 100, messages: [{ role: "user", content: "hi" }] }, T);
       check(`${name} still allows ${model}`, lastBody().model === model, lastBody().model);

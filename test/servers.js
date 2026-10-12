@@ -131,7 +131,7 @@ async function main() {
 
     // stemming: singular/plural/gerund forms of one word must meet at one stem
     const stemGroups = [["service", "services"], ["type", "types"], ["license", "licenses", "licensing"], ["price", "prices", "pricing"],
-      ["store", "stored", "storing"], ["process", "processes"], ["policy", "policies"], ["backup", "backups"], ["database", "databases"]];
+      ["store", "stored", "storing"], ["agree", "agrees", "agreed"], ["guarantee", "guarantees", "guaranteed"], ["process", "processes"], ["policy", "policies"], ["backup", "backups"], ["database", "databases"]];
     const badStems = stemGroups.filter((g) => new Set(g.map(engine.stem)).size !== 1).map((g) => g.join("/"));
     check("stem() maps inflections of one word to one stem", !badStems.length, badStems.join(", "));
     engine.KB.docs.clear();
@@ -163,8 +163,14 @@ async function main() {
     engine.KB.docs.clear();
     engine.addDoc("lf", doc, false); engine.addDoc("crlf", doc.replace(/\n/g, "\r\n"), false);
     console.log = () => {}; engine.reindex(); console.log = quiet;
-    const flood = engine.retrieve(Array.from({ length: 20000 }, (_, i) => "term" + i).join(" ")).missing_terms.length;
-    check("retrieve uses at most 80 distinct query terms", flood === 80, String(flood));
+    engine.KB.docs.clear();
+    engine.addDoc("head", "alpha0 appears in this chunk only.", false);
+    engine.addDoc("tail", "alpha99 appears in this chunk only.", false);
+    console.log = () => {}; engine.reindex(); console.log = quiet;
+    const longQ = Array.from({ length: 100 }, (_, i) => "alpha" + i).join(" ");
+    const hit = engine.retrieve(longQ);
+    check("only the first 80 terms score chunks", hit.sources.join() === "head", hit.sources.join());
+    check("coverage still counts terms beyond the first 80", hit.missing_terms.length === 98, String(hit.missing_terms.length));
 
     let r = await request(enginePort, "GET", "/health");
     check("engine default model is claude-sonnet-5-5", r.json && r.json.model === "claude-sonnet-5-5", r.text);

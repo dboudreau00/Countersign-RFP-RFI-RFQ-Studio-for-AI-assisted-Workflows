@@ -79,7 +79,7 @@ Request:
 }
 ```
 Limits: `question` must be a string of 3 to 4000 characters, otherwise the call is a
-`400`. Retrieval uses at most the first 80 distinct terms of it. `type` must be one
+`400`. Only its first 80 distinct terms rank chunks; coverage and `missing_terms` consider all of them. `type` must be one
 of the four names above; anything else is ignored. `tone` is flattened to one
 line and cut to 80 characters. `max_words` is clamped to 20 to 500.
 

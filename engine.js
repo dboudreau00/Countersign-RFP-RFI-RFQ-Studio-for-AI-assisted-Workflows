@@ -99,6 +99,8 @@ function stripSuffix(w) {
   // "es" is only a plural marker after a sibilant (processes, boxes, matches); elsewhere
   // it is just "s" after a stem ending in "e" (services, types), so drop one letter only.
   if (w.length > 4 && w.endsWith("es")) return /(s|x|z|ch|sh)es$/.test(w) ? w.slice(0, -2) : w.slice(0, -1);
+  // "agreed" must meet "agree": drop only the d, or the trailing-e fold strips a second letter
+  if (w.length > 4 && w.endsWith("eed")) return w.slice(0, -1);
   if (w.length > 4 && w.endsWith("ed")) return w.slice(0, -2);
   if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) return w.slice(0, -1);
   return w;
@@ -230,9 +232,12 @@ function retrieve(question, budget = CONTEXT_BUDGET, maxChunks = 12) {
   // `askedTerms` is what the user actually wrote, and is what coverage and
   // missing_terms are measured over: reporting the expansions would tell someone whose
   // docs say "SSO" that they are missing documentation on "single" and "sign".
-  const rawTerms = tokenize(question).slice(0, MAX_QUERY_TERMS);
+  const rawTerms = tokenize(question);
+  // only the first MAX_QUERY_TERMS terms drive chunk scoring (cost); coverage and
+  // missing_terms still look at every term, so the tail of a long question is not ignored
+  const scoreTerms = rawTerms.slice(0, MAX_QUERY_TERMS);
   const askedTerms = [...new Set(rawTerms.map(stem))];
-  const qTerms = [...new Set(expandTerms(rawTerms).map(stem))];
+  const qTerms = [...new Set(expandTerms(scoreTerms).map(stem))];
   const N = Math.max(1, KB.chunks.length);
   const idf = Object.create(null);
   for (const t of qTerms) idf[t] = KB.df[t] ? Math.log(1 + N / KB.df[t]) : 1;

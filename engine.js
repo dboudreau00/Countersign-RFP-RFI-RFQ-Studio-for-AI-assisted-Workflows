@@ -24,9 +24,10 @@
  *   MODEL=claude-sonnet-5-5   generation model
  *   ALLOW_ORIGIN=*            CORS origin for browser callers
  *   COUNTERSIGN_TOKEN=...     shared secret; required on every POST when set
+ *   CONCURRENCY=2             parallel upstream calls for /batch (1 to 4)
  *
  * Endpoints (JSON in, JSON out; X-Team-Token header when token is set):
- *   GET  /health   -> { ok, docs, chunks, model }
+ *   GET  /health   -> { ok, docs, chunks, model, token_required }
  *   POST /search   -> { query, k? }            => top chunks, no AI call
  *   POST /answer   -> { question, tone?, type?, max_words? }
  *                                              => grounded answer + sources

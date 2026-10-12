@@ -211,7 +211,7 @@ so the message itself usually names the fix.
 | "2 questions can't go to the engine (…)" | The engine takes questions of 3 to 4000 characters, and one outside that range would reject the whole batch. Those rows are marked **Failed** and the rest are sent. Shorten or split the long ones, delete the stray short ones, and generate again. |
 | "The engine stream ended early" | The `/batch` connection dropped mid-stream. Unanswered rows are stamped **Failed**. Regenerate those individually. |
 | Requests fail only when self-hosted with the *built-in* Claude provider | The keyless built-in provider only works inside Claude.ai. Self-hosted deployments must use "Claude (your API key)", the team proxy, or the engine. |
-| CORS error hitting the Node proxy | Set `ALLOW_ORIGIN` to your site's origin, or reverse-proxy onto the same domain. |
+| `Failed to fetch` hitting the Node proxy from a page on another origin | Set `ALLOW_ORIGIN` to your site's origin, or reverse-proxy onto the same domain. |
 | Team token is empty after a page reload | Keys and tokens are held in memory for the session only and are never persisted. Re-enter it in **⚙ AI settings** after a reload. |
 | Browser storage quota errors with a huge bucket | localStorage is about 5 to 10 MB in most browsers, and a save briefly needs room for the old and the new copy of the bucket, so a bucket above roughly half the quota stops saving (removing a few documents does not help until it is back under that). Keep the master bucket in `countersign-data.json` and pull it with **⟳ Load from site directory** rather than relying on local persistence. |
 | `413 Request too large` from the proxy | A single question pulled a very large context. Raise `MAX_BODY_BYTES` in the proxy if you've raised the app's retrieval budget. |
@@ -222,7 +222,7 @@ so the message itself usually names the fix.
 ```
 public_html/
 └── rfp/
-    ├── index.html              <- countersign-rfp-studio.html, renamed
+    ├── index.html              <- the app
     ├── proxy.php               <- holds the API key server-side
     └── countersign-data.json   <- shared team bucket (exported from the app)
 ```
@@ -252,9 +252,9 @@ That's the whole stack: one page, one proxy, one data file.
 loads your knowledge base server-side (from `countersign-data.json` and/or a
 `kb/` folder) and exposes `POST /answer`: question in, documentation-grounded
 answer with sources and a coverage score out. Use it to wire RFP answering into
-anything beyond the web app: portals, bots, scripts. Its `/proxy` endpoint is
-drop-in compatible with the app's Team server proxy setting, so one process
-serves both.
+anything beyond the web app: portals, bots, scripts. Its `/proxy` endpoint
+works with the app's Team server proxy setting at the exact path `/proxy`, so one
+process serves both.
 
 The web app also has a native **Countersign Engine** provider (⚙ AI settings):
 point it at the engine's URL and generation switches to server-side retrieval.

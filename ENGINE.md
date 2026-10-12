@@ -95,8 +95,9 @@ Response:
 }
 ```
 `coverage` (0 to 1) estimates how well the knowledge base substantiates the
-question: it is the fraction of the question's content terms that appear
-anywhere in the KB, scaled slightly by how many chunks were retrieved. A question
+question: it is the share of the question's content terms that appear
+anywhere in the KB, weighted by rarity (a term in no document counts heavily, a term
+in many counts little), and scaled slightly by how many chunks were retrieved. A question
 whose vocabulary is absent scores 0 regardless of how much unrelated material the
 retriever found. `missing_terms` lists the words of the question found nowhere in the
 KB, as the asker wrote them.
@@ -232,7 +233,8 @@ never removes a same-named file belonging to a different document:
 Raw Anthropic `/v1/messages` pass-through. `messages` must be a non-empty array of
 objects (otherwise a `400`). Only `messages` and `system` are forwarded: the model is always the engine's own `MODEL` (the client's `model`
 field is ignored, not allowlisted) and `max_tokens` is capped at 16384. This makes
-the engine a drop-in replacement for `proxy.js`: point the web app's **Team
+the engine a replacement for `proxy.js` at the exact path `/proxy` (it does not
+accept other mount points): point the web app's **Team
 server proxy** at `http://host:8790/proxy` and you only run one server for both
 the app and the engine.
 
@@ -278,8 +280,9 @@ $result = json_decode(curl_exec($ch), true);
   Browsers must send JSON, which forces a CORS preflight, so a restrictive
   `ALLOW_ORIGIN` also stops other sites from calling it from a visitor's browser.
 - The engine holds the whole index in memory: a full 60 MB knowledge base is
-  roughly 55k chunks and retrieval stays well under 100 ms, but budget RAM
-  accordingly (about 3 to 4 times the raw text size).
+  roughly 55k chunks. Retrieval takes about 30 to 80 ms for a typical question and up
+  to about 150 ms for the 80-term maximum. Budget RAM for roughly 6 to 9 times the raw
+  text size (about 580 MB resident for 60 MB of text).
 - No request-frequency throttling is built in. Add nginx `limit_req` for
   internet-facing deployments; every `/answer` call costs API credits.
 - Retrieval is lexical (TF-IDF with light suffix stemming + an acronym alias

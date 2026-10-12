@@ -153,7 +153,7 @@ async function draft(c, retrieval) {
 
 /* ------------------------------------------------------------------ baseline */
 const METRICS = [
-  { key: "p@1", higher: true }, { key: "p@3", higher: true }, { key: "p@5", higher: true },
+  { key: "p@1", higher: true }, { key: "r@1", higher: true }, { key: "p@3", higher: true }, { key: "p@5", higher: true },
   { key: "r@3", higher: true }, { key: "r@5", higher: true }, { key: "mrr", higher: true },
   { key: "gap_accuracy", higher: true },
   { key: "groundedness", higher: true }, { key: "mention_rate", higher: true },

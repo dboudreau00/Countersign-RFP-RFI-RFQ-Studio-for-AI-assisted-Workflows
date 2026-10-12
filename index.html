@@ -520,7 +520,7 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
 
 <!-- ============ SETTINGS MODAL ============ -->
 <div class="modal-back" id="settings-modal">
-  <div class="modal" role="dialog" aria-label="AI settings">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="AI settings" tabindex="-1" id="settings-dialog">
     <h2>AI provider</h2>
     <div class="row">
       <label class="field">Provider</label>
@@ -595,7 +595,7 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
   </div>
 </div>
 
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
 <script>
 /* ================================================================
    Countersign — state, persistence, file parsing
@@ -709,7 +709,8 @@ function _drainToasts(){
   t.textContent = next.msg;
   t.className = next.err ? "show err" : "show";
   clearTimeout(t._h);
-  t._h = setTimeout(_drainToasts, next.err ? 5200 : 3200);
+  // a long backlog (every row failing) drains faster so the closing summary is not buried
+  t._h = setTimeout(_drainToasts, _toastQ.length > 3 ? 1200 : next.err ? 5200 : 3200);
 }
 
 /* ---------- persistence: Claude cloud → browser localStorage (self-hosted) → memory ---------- */
@@ -914,7 +915,7 @@ const STOP = new Set(("the a an and or of to in for with on is are does do your 
   "into onto over under between during after before within without across per via " +
   "if but not only just still even ever never always currently " +
   "relevant applicable appropriate additional further brief often").split(/\s+/));
-/* Light stemmer, identical to engine.js, so "hosting" in a question matches "hosted"
+/* Light stemmer, a copy of the idea in engine.js (not identical: keep them close), so "hosting" in a question matches "hosted"
    in the docs instead of being reported as a missing topic. */
 function stemWord(w){
   if(w.length > 4 && w.endsWith("ies")) return w.slice(0,-3) + "y";
@@ -1782,7 +1783,7 @@ function renderLedger(openIds){
     const srcs = Array.isArray(q.sources) ? q.sources : [];
     return `
     <div class="q-row ${openIds.includes(q.id) ? "open" : ""}" data-id="${id}">
-      <div class="q-head" data-toggle="${id}">
+      <div class="q-head" data-toggle="${id}" tabindex="0" role="button" aria-expanded="${openIds.includes(q.id)}">
         <span class="clause">${esc(q.ref)}</span>
         <div class="q-text">${esc(q.text)}
           <div style="margin-top:5px"><span class="qtype ${type}">${QTYPES[type]} · ~${safeLen(type)}w</span></div>
@@ -1806,8 +1807,11 @@ function renderLedger(openIds){
       </div>
     </div>`; }).join("");
 
-  el.querySelectorAll("[data-toggle]").forEach(h => h.onclick = () =>
-    h.closest(".q-row").classList.toggle("open"));
+  el.querySelectorAll("[data-toggle]").forEach(h => {
+    const flip = () => { const row = h.closest(".q-row"); h.setAttribute("aria-expanded", String(row.classList.toggle("open"))); };
+    h.onclick = flip;
+    h.onkeydown = e => { if((e.key === "Enter" || e.key === " ") && e.target === h){ e.preventDefault(); flip(); } };
+  });
   el.querySelectorAll("[data-ans]").forEach(t => {
     t.onclick = e => e.stopPropagation();
     t.oninput = () => { t.dataset.dirty = "1"; };
@@ -2218,9 +2222,11 @@ $("open-settings").onclick = () => {
     if([...sel.options].some(o => o.value == S.settings.lengths[t])) sel.value = S.settings.lengths[t];
   }
   syncSettingsUI(); modal.classList.add("show");
+  $("settings-dialog").focus();
 };
 $("settings-close").onclick = () => modal.classList.remove("show");
 modal.addEventListener("click", e => { if(e.target === modal) modal.classList.remove("show"); });
+modal.addEventListener("keydown", e => { if(e.key === "Escape") modal.classList.remove("show"); });
 $("set-provider").onchange = () => {
   if(keyFieldProvider) sessionKeys[keyFieldProvider] = $("set-key").value.trim();
   keyFieldProvider = $("set-provider").value;

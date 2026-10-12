@@ -71,7 +71,9 @@ if (!is_array($body) || !isset($body['messages']) || !is_array($body['messages']
     || count($body['messages']) === 0 || array_keys($body['messages']) !== range(0, count($body['messages']) - 1))
     fail(400, 'Body must be Anthropic /v1/messages JSON');
 foreach ($body['messages'] as $m) {
-    if (!is_array($m)) fail(400, 'Body must be Anthropic /v1/messages JSON');
+    // a message is a JSON object: a non-empty array with string keys (a list or {} is not)
+    if (!is_array($m) || count($m) === 0 || array_keys($m) === range(0, count($m) - 1))
+        fail(400, 'Body must be Anthropic /v1/messages JSON');
 }
 
 // Enforce server-side limits: model allowlist + token cap. Strip anything else exotic.

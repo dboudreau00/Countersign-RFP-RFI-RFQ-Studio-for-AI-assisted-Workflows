@@ -75,9 +75,14 @@ Request:
   "question": "Do you support SAML SSO with Okta?",
   "type": "compliance",          // optional: compliance | technical | commercial | narrative
   "tone": "formal, suitable for public-sector procurement",   // optional
-  "max_words": 120               // optional, capped at 500
+  "max_words": 120               // optional, 20 to 500
 }
 ```
+Limits: `question` must be a string of 3 to 4000 characters, otherwise the call is a
+`400`. Retrieval uses at most the first 80 distinct terms of it. `type` must be one
+of the four names above; anything else is ignored. `tone` is flattened to one
+line and cut to 80 characters. `max_words` is clamped to 20 to 500.
+
 Response:
 ```json
 {
@@ -93,7 +98,8 @@ Response:
 question: it is the fraction of the question's content terms that appear
 anywhere in the KB, scaled slightly by how many chunks were retrieved. A question
 whose vocabulary is absent scores 0 regardless of how much unrelated material the
-retriever found. `missing_terms` lists the query concepts found nowhere in the KB.
+retriever found. `missing_terms` lists the words of the question found nowhere in the
+KB, as the asker wrote them.
 A low-coverage answer with many missing terms is your cue to add documentation
 rather than trust the output. Common RFP verbiage ("confirm", "whether",
 "outline", "state") is filtered out, so what remains is topical.
@@ -110,15 +116,17 @@ reason in `error.message` (for a refusal it includes the category, for example
 ```
 Returns the top chunks with sources, coverage and missing terms. Free and
 instant, useful for debugging the KB or wiring "related docs" features.
-`k` defaults to 5 and is clamped to 1 to 20; the retriever returns at most 12 chunks
-in total, so values above that are capped by the retrieval budget rather than by
-`k`.
+`k` defaults to 5 and is clamped to 1 to 20, and that many chunks come back when
+that many match. `query` is limited to 4000 characters (a `400` beyond that).
 
 ### `POST /batch`: a whole RFP in one call
 Send an array of questions; answers **stream back as NDJSON** (one JSON object
 per line) the moment each completes, processed by a small worker pool
 (`CONCURRENCY` env, default 2, max 4) with one automatic retry on rate-limit
-or overload responses. Up to 100 questions per call.
+or overload responses. Up to 100 questions per call. Every question is checked
+before any is answered: one that is not a string of 3 to 4000 characters rejects
+the whole call with a `400` that names its position, so filter those out first (the
+web app does, and fails those rows on their own).
 
 Request:
 ```json
@@ -221,8 +229,8 @@ never removes a same-named file belonging to a different document:
 ```
 
 ### `POST /proxy`
-Raw Anthropic `/v1/messages` pass-through. Only `messages` and `system` are
-forwarded: the model is always the engine's own `MODEL` (the client's `model`
+Raw Anthropic `/v1/messages` pass-through. `messages` must be a non-empty array of
+objects (otherwise a `400`). Only `messages` and `system` are forwarded: the model is always the engine's own `MODEL` (the client's `model`
 field is ignored, not allowlisted) and `max_tokens` is capped at 16384. This makes
 the engine a drop-in replacement for `proxy.js`: point the web app's **Team
 server proxy** at `http://host:8790/proxy` and you only run one server for both

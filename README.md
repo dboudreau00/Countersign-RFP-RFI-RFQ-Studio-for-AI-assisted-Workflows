@@ -165,8 +165,10 @@ when it listens on `0.0.0.0`.
   returns a JSON array of up to 40 items, current Claude models spend part of the
   budget thinking before they write, and a tighter ceiling truncates that JSON
   mid-array.
-- **Team token** check via the `X-Team-Token` header when configured, compared
-  in constant time.
+- **Team token** check via the `X-Team-Token` header when configured. Both sides are
+  hashed before they are compared, so neither the token nor its length leaks through
+  timing.
+- **`messages`** must be a non-empty array of objects; anything else is a `400`.
 - Unknown fields are stripped before forwarding; only `model`, `max_tokens`,
   `messages`, and `system` pass through.
 
@@ -206,6 +208,7 @@ so the message itself usually names the fix.
 | `Gemini API 503: This model is currently experiencing high demand` | Google is shedding load on that model. The app already retried once. Wait and retry, or set the Model field in AI settings to `gemini-flash-lite-latest`, which has separate capacity. |
 | `Gemini API 429: You exceeded your current quota` | Free-tier rate limit. Wait, switch model, or enable billing. The app already retries once automatically. |
 | `Engine 401 / 404 / 500: …` | Countersign Engine provider: check the URL, the team token, and that `engine.js` is running (**⟲ Check engine** on page 1 reports its status). |
+| "2 questions can't go to the engine (…)" | The engine takes questions of 3 to 4000 characters, and one outside that range would reject the whole batch. Those rows are marked **Failed** and the rest are sent. Shorten or split the long ones, delete the stray short ones, and generate again. |
 | "The engine stream ended early" | The `/batch` connection dropped mid-stream. Unanswered rows are stamped **Failed**. Regenerate those individually. |
 | Requests fail only when self-hosted with the *built-in* Claude provider | The keyless built-in provider only works inside Claude.ai. Self-hosted deployments must use "Claude (your API key)", the team proxy, or the engine. |
 | CORS error hitting the Node proxy | Set `ALLOW_ORIGIN` to your site's origin, or reverse-proxy onto the same domain. |

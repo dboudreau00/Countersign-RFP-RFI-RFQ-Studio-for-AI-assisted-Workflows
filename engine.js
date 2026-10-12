@@ -148,7 +148,24 @@ function reindex() {
 /* Names the boot scanner deliberately skips: persisting a document under one of them
    would clobber a folder doc and the document itself would vanish on the next restart. */
 const RESERVED_NAMES = /^(README\.txt|countersign-data\.json)$/i;
+/* The file name a pushed document is stored under. Replacing characters or cutting a long
+   name loses information, so two different names ("Policy (2024).pdf", "Policy [2024].pdf")
+   could land on one file and silently overwrite each other: such names get a short hash
+   of the original. Applying it to its own output changes nothing. */
 const canonicalName = (name) => {
+  const raw = String(name);
+  const cleaned = raw.replace(/[^a-zA-Z0-9 ._~-]/g, "_");
+  const ext = (/\.(txt|md|csv|json)$/i.exec(cleaned) || [""])[0];
+  let stem = cleaned.slice(0, cleaned.length - ext.length);
+  if (cleaned !== raw || stem.length > 120 || !stem) {
+    const tag = crypto.createHash("sha256").update(raw, "utf8").digest("hex").slice(0, 8);
+    stem = (stem || "doc").slice(0, 111) + "~" + tag;
+  }
+  const named = stem + (ext || ".txt");
+  return RESERVED_NAMES.test(named) ? "_" + named : named;
+};
+// The name the scheme above replaced, so files stored by an older engine are still found.
+const legacyName = (name) => {
   const safe = String(name).replace(/[^a-zA-Z0-9 ._-]/g, "_").slice(0, 120) || "doc";
   const named = /\.(txt|md|csv|json)$/i.test(safe) ? safe : safe + ".txt";
   return RESERVED_NAMES.test(named) ? "_" + named : named;
@@ -164,14 +181,18 @@ function addDoc(name, text, persist) {
   // key in memory — /forget and re-ingest then behave identically across restarts
   const key = persist ? canonicalName(name) : name;
   // A pushed document replaces any copy loaded under its original name (from DATA_FILE,
-  // or a kb/ file whose name is not canonical); keeping both indexes the text twice.
+  // or a kb/ file whose name is not canonical) or stored under the older naming scheme;
+  // keeping both indexes the text twice.
   const superseded = [];
-  if (persist && name !== key && KB.docs.has(name)) {
-    KB.docs.delete(name);
-    superseded.push(name);
-    const old = KB.files.get(name);
-    if (old && old !== key) { try { fs.unlinkSync(path.join(KB_DIR, old)); } catch (e) {} }
-    KB.files.delete(name);
+  if (persist) {
+    for (const prior of new Set([String(name), legacyName(name)])) {
+      if (prior === key || !KB.docs.has(prior)) continue;
+      KB.docs.delete(prior);
+      superseded.push(prior);
+      const old = KB.files.get(prior);
+      if (old && old !== key) { try { fs.unlinkSync(path.join(KB_DIR, old)); } catch (e) {} }
+      KB.files.delete(prior);
+    }
   }
   KB.docs.set(key, text);
   let persisted = null;
@@ -192,7 +213,10 @@ function loadKnowledgeBase() {
   try {
     const ws = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
     if (ws && Array.isArray(ws.docs)) {
-      for (const d of ws.docs) if (d.name && d.text && addDoc(d.name, d.text, false)) fromData.set(canonicalName(d.name), String(d.name));
+      for (const d of ws.docs) if (d.name && d.text && addDoc(d.name, d.text, false)) {
+        fromData.set(canonicalName(d.name), String(d.name));
+        fromData.set(legacyName(d.name), String(d.name));
+      }
       console.log(`[kb] loaded ${ws.docs.length} docs from ${path.basename(DATA_FILE)}`);
     }
   } catch (e) { /* file absent is fine */ }
@@ -207,7 +231,7 @@ function loadKnowledgeBase() {
     } catch (e) { console.warn(`[kb] skipped ${f}: ${e.message}`); continue; }   // one unreadable entry must not end the scan
     KB.files.set(f, f);
     // a pushed copy of a DATA_FILE document supersedes it
-    const dup = fromData.get(canonicalName(f));
+    const dup = fromData.get(f) ?? fromData.get(canonicalName(f));
     if (dup !== undefined && dup !== f) KB.docs.delete(dup);
   }
   reindex();
@@ -453,6 +477,7 @@ const routes = {
     let key = null;
     if (KB.docs.delete(body.name)) key = body.name;
     else if (KB.docs.delete(canon)) key = canon;
+    else if (KB.docs.delete(legacyName(body.name))) key = legacyName(body.name);
     if (!key) return fail(res, 404, "No such document");
     let removedFile = false;
     const file = KB.files.get(key);

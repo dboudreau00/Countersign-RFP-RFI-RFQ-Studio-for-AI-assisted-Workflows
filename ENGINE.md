@@ -198,8 +198,13 @@ for (;;) {
 ```
 Plain text only: parse binary formats client-side or via the web app.
 Ingested documents are stored under a sanitized canonical filename (echoed back
-as `name` in the response, e.g. `SLA Policy _v2_.pdf.txt`) so the key survives
-restarts. When scanning `kb/` at boot the engine skips `README.txt` and
+as `name` in the response) so the key survives restarts. Characters outside
+letters, digits, space, `.`, `_`, `~` and `-` become `_`, and a name that had to be
+changed or shortened gets a short hash of the original, so two different names can
+never overwrite each other: `SLA Policy (v2).pdf` is stored as
+`SLA Policy _v2_.pdf~e58ca679.txt`. Engines before this scheme stored that name as
+`SLA Policy _v2_.pdf.txt`; pushing the document again replaces the old file, so after
+upgrading, push the bucket once. When scanning `kb/` at boot the engine skips `README.txt` and
 `countersign-data.json` (the latter is only read via `DATA_FILE`, never as raw
 text), so a document whose name would canonicalise onto one of those is stored
 with a leading underscore (`_README.txt`) instead of overwriting it.
@@ -211,7 +216,7 @@ likewise supersedes the `DATA_FILE` document it was pushed from.
 
 `/ingest` response:
 ```json
-{ "ok": true, "name": "SLA Policy _v2_.pdf.txt", "chars": 1840,
+{ "ok": true, "name": "SLA Policy _v2_.pdf~e58ca679.txt", "chars": 1840,
   "truncated": false, "max_doc_chars": 220000, "persisted": true,
   "docs": 43, "chunks": 1192 }
 ```
@@ -226,7 +231,7 @@ actually removed. The file under `kb/` is deleted **only** when that document wa
 loaded from or pushed to `kb/`: forgetting a document that came from `DATA_FILE`
 never removes a same-named file belonging to a different document:
 ```json
-{ "ok": true, "name": "SLA Policy _v2_.pdf.txt", "docs": 42, "file_removed": true }
+{ "ok": true, "name": "SLA Policy _v2_.pdf~e58ca679.txt", "docs": 42, "file_removed": true }
 ```
 
 ### `POST /proxy`

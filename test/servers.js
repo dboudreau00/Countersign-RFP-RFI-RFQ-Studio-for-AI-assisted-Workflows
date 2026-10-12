@@ -303,6 +303,28 @@ async function main() {
       `chunks ${health.chunks} vs ${health2.chunks}`);
     s = await search(e.port, "encryption keys rotate");
     check("at boot a pushed kb/ copy supersedes its DATA_FILE document", s && s.sources.join() === "Whitepaper.pdf.txt", JSON.stringify(s && s.sources));
+
+    // names that clean up to the same file must not overwrite each other
+    const pairs = [["Policy (2024).pdf", "Policy [2024].pdf"], ["x".repeat(130) + "A.md", "x".repeat(130) + "B.md"], ["日本語.pdf", "中文字.pdf"]];
+    for (const [i, [n1, n2]] of pairs.entries()) {
+      const a = await request(e.port, "POST", "/ingest", { name: n1, text: `zulufirst${i} marker document.` }, T);
+      const b = await request(e.port, "POST", "/ingest", { name: n2, text: `zulusecond${i} marker document.` }, T);
+      const both = (await search(e.port, `zulufirst${i} zulusecond${i}`)).sources;
+      check(`different names stay different documents: ${n1.slice(0, 24)} / ${n2.slice(0, 24)}`, a.json.name !== b.json.name && both.length === 2, JSON.stringify([a.json.name, b.json.name, both]));
+    }
+    r = await request(e.port, "POST", "/ingest", { name: "Policy (2024).pdf", text: "zulufirst0 revised." }, T);
+    check("re-pushing a cleaned-up name replaces its own document", (await search(e.port, "zulufirst0")).sources.length === 1 && r.json.name.includes("~"), r.text);
+    e.child.kill();
+
+    // a file stored by the older naming scheme is replaced, not duplicated, when its document is pushed again
+    fs.writeFileSync(path.join(kb2, "Old _v2_.pdf.txt"), "legacystored marker text.");
+    e = await boot();
+    r = await request(e.port, "POST", "/ingest", { name: "Old (v2).pdf", text: "legacystored marker text, revised." }, T);
+    s = await search(e.port, "legacystored");
+    check("a pushed document supersedes its copy stored under the old naming scheme",
+      s.sources.length === 1 && s.sources[0] === r.json.name && !fs.existsSync(path.join(kb2, "Old _v2_.pdf.txt")), JSON.stringify(s.sources));
+    r = await request(e.port, "POST", "/forget", { name: "Old (v2).pdf" }, T);
+    check("/forget by the original name removes the stored file", r.json && r.json.file_removed, r.text);
     e.child.kill();
   }
 

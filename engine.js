@@ -249,16 +249,23 @@ function addDoc(name, text, persist) {
 function loadKnowledgeBase() {
   // 1. workspace export from the web app
   const fromData = new Map();   // canonical name -> DATA_FILE document name
-  try {
-    const ws = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+  const loaded = (name, stored) => {
+    if (stored && stored.truncated) console.warn(`[kb] ${name}: only the first ${MAX_DOC_CHARS} characters are indexed`);
+    return stored;
+  };
+  let raw = null;
+  try { raw = fs.readFileSync(DATA_FILE, "utf8"); } catch (e) { /* file absent is fine */ }
+  if (raw !== null) {
+    let ws = null;
+    try { ws = JSON.parse(raw); } catch (e) { console.warn(`[kb] ${path.basename(DATA_FILE)} is not valid JSON and was ignored: ${e.message}`); }
     if (ws && Array.isArray(ws.docs)) {
-      for (const d of ws.docs) if (d.name && d.text && addDoc(d.name, d.text, false)) {
+      for (const d of ws.docs) if (d.name && d.text && loaded(d.name, addDoc(d.name, d.text, false))) {
         fromData.set(canonicalName(d.name), String(d.name));
         fromData.set(legacyName(d.name), String(d.name));
       }
       console.log(`[kb] loaded ${ws.docs.length} docs from ${path.basename(DATA_FILE)}`);
-    }
-  } catch (e) { /* file absent is fine */ }
+    } else if (ws) console.warn(`[kb] ${path.basename(DATA_FILE)} has no docs array and was ignored`);
+  }
   // 2. plain-text directory
   let names = [];
   try { names = fs.readdirSync(KB_DIR); } catch (e) { /* dir absent is fine */ }
@@ -266,7 +273,7 @@ function loadKnowledgeBase() {
     if (!/\.(txt|md|csv|json)$/i.test(f)) continue;
     if (/^countersign-data\.json$/i.test(f) || /^README\.txt$/i.test(f)) continue; // workspace exports & folder docs aren't KB sources
     try {
-      if (!addDoc(f, fs.readFileSync(path.join(KB_DIR, f), "utf8"), false)) continue;
+      if (!loaded(f, addDoc(f, fs.readFileSync(path.join(KB_DIR, f), "utf8"), false))) continue;
     } catch (e) { console.warn(`[kb] skipped ${f}: ${e.message}`); continue; }   // one unreadable entry must not end the scan
     KB.files.set(f, f);
     // a pushed copy of a DATA_FILE document supersedes it

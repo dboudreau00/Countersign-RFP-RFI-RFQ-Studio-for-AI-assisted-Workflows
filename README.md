@@ -246,6 +246,9 @@ That's the whole stack: one page, one proxy, one data file.
   (the gap report lists the specific terms it could not find, so this is visible). It is
   tuned to over-flag rather than miss: reviewing a false gap costs a minute, shipping an
   unsubstantiated answer costs the bid.
+- **Each document is indexed up to 220,000 characters**, about 35,000 words.
+  The app says so when a file is cut, and the engine logs it, so split a longer
+  document into parts to search all of it.
 - **Question extraction depends on the model.** It asks for at most 40 items and merges
   duplicates, so a very long RFP may come back consolidated. Check the ledger against the
   source document before generating; the app warns when a reply was cut off mid-list.

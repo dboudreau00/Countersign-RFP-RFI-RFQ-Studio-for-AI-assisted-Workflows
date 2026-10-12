@@ -221,7 +221,9 @@ likewise supersedes the `DATA_FILE` document it was pushed from.
   "docs": 43, "chunks": 1192 }
 ```
 `truncated` is `true` when the document was longer than `max_doc_chars` and only
-the first `chars` characters were indexed. `persisted` is `false` when the text
+the first `chars` characters were indexed. A file in `kb/` or `DATA_FILE` that is
+cut the same way at boot is named in a `[kb]` warning on stderr, and a `DATA_FILE`
+that is not valid JSON is logged and ignored rather than silently skipped. `persisted` is `false` when the text
 was indexed in memory but could not be written to `kb/`, meaning it will be gone
 after a restart. Check both rather than relying on `ok` alone.
 

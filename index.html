@@ -870,7 +870,9 @@ async function parseFile(file){
     text = new TextDecoder().decode(buf);
   }
   text = text.replace(/\u0000/g,"").replace(/[ \t]+\n/g,"\n").trim();
-  if(!text) throw new Error("No extractable text (scanned PDF?)");
+  if(!text) throw new Error(ext === "pdf" ? "No extractable text (scanned PDF?)" : "No text found in this file");
+  if(text.length > MAX_DOC_CHARS)
+    toast(`${file.name} has ${text.length.toLocaleString()} characters. Only the first ${MAX_DOC_CHARS.toLocaleString()} are kept, so split it into smaller files to search all of it`, true);
   return text.slice(0, MAX_DOC_CHARS);
 }
 

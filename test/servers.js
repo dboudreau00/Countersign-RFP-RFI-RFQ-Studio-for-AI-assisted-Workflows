@@ -41,17 +41,22 @@ function request(port, method, urlPath, payload, headers = {}) {
   });
 }
 
-function startProcess(cmd, args, env, readyPort) {
-  const child = spawn(cmd, args, { env: { ...process.env, ...env }, stdio: "ignore" });
+function waitForPort(port) {
   return new Promise((resolve) => {
     const deadline = Date.now() + 10000;
     const poll = () => {
-      const s = net.connect(readyPort, "127.0.0.1");
-      s.on("connect", () => { s.destroy(); resolve(child); });
-      s.on("error", () => (Date.now() > deadline ? resolve(child) : setTimeout(poll, 100)));
+      const s = net.connect(port, "127.0.0.1");
+      s.on("connect", () => { s.destroy(); resolve(); });
+      s.on("error", () => (Date.now() > deadline ? resolve() : setTimeout(poll, 100)));
     };
     poll();
   });
+}
+
+async function startProcess(cmd, args, env, readyPort) {
+  const child = spawn(cmd, args, { env: { ...process.env, ...env }, stdio: "ignore" });
+  await waitForPort(readyPort);
+  return child;
 }
 
 function exitCode(args, env, ms = 8000) {
@@ -255,6 +260,7 @@ async function main() {
     await documentChecks(T);
     await proxyChecks("proxy.js", proxyPort, "/rfp/proxy");
     await browserGuardChecks();
+    await bootLogChecks();
     await bindChecks();
 
     const php = spawnSync("php", ["-m"], { encoding: "utf8" });
@@ -399,6 +405,23 @@ async function main() {
     } finally {
       engineNoToken.kill(); proxyNoToken.kill(); engineWithOrigin.kill();
     }
+  }
+
+  async function bootLogChecks() {
+    const kb4 = path.join(WORK, "kb4");
+    fs.mkdirSync(kb4);
+    fs.writeFileSync(path.join(kb4, "huge.txt"), "Retention policy text. ".repeat(11000));
+    const badData = path.join(WORK, "bad.json");
+    fs.writeFileSync(badData, "{ not json");
+    const port = await freePort();
+    const child = spawn(NODE, [ENGINE], { env: { ...process.env, ANTHROPIC_API_KEY: "sk-test", COUNTERSIGN_TOKEN: TOKEN, HOST: "", PORT: String(port), KB_DIR: kb4, DATA_FILE: badData }, stdio: ["ignore", "pipe", "pipe"] });
+    let log = "";
+    child.stdout.on("data", (d) => (log += d));
+    child.stderr.on("data", (d) => (log += d));
+    await waitForPort(port);
+    child.kill();
+    check("boot warns when a kb/ file is cut at MAX_DOC_CHARS", /huge\.txt: only the first 220000 characters/.test(log), log.slice(0, 300));
+    check("boot warns when DATA_FILE is not valid JSON", /bad\.json is not valid JSON/.test(log), log.slice(0, 300));
   }
 
   async function bindChecks() {

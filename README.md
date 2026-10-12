@@ -37,6 +37,10 @@ node eval/run.js
 
 Details, metric definitions and how to add cases: [`eval/README.md`](eval/README.md).
 
+The web app has its own browser suite in [`e2e/`](e2e/): 722 checks that drive the real
+page in headless Chromium, with every LLM endpoint mocked. It needs Playwright, installed
+into that folder only; see [`e2e/README.md`](e2e/README.md).
+
 ## Files
 
 | File | What it is |
@@ -50,6 +54,7 @@ Details, metric definitions and how to add cases: [`eval/README.md`](eval/README
 | `kb/` | Plain-text knowledge base folder for `engine.js` (see `kb/README.txt`). |
 | `eval/` | Evaluation harness for the engine: held-out question set, retrieval and groundedness metrics, CI drift canary. See `eval/README.md`. |
 | `test/` | Behaviour checks for `engine.js`, `proxy.js` and `proxy.php` against a local fake of the Anthropic API. Run `node test/servers.js`; CI runs it on Node 18 to 24. |
+| `e2e/` | Browser end-to-end suite for `index.html` (Playwright, mocked LLM endpoints). See `e2e/README.md`. |
 | `LICENSE` | MIT. |
 
 ## Quick start (no server code at all)

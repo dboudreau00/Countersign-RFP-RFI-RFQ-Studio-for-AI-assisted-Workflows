@@ -1,0 +1,76 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>e2e helper</title>
+<!-- Independent of the app under test: the harness uses this page to BUILD fixtures and to
+     READ BACK exported files with the real CDN libraries (docx, SheetJS, mammoth). -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
+</head><body>
+<script>
+function toB64(ab){
+  const u = new Uint8Array(ab); let s = '';
+  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function fromB64(b64){
+  const bin = atob(b64); const u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u;
+}
+window.E2E = {
+  libs(){ return { docx: typeof docx, XLSX: typeof XLSX, mammoth: typeof mammoth }; },
+  async makeDocx(paras){
+    const D = window.docx;
+    const doc = new D.Document({ sections: [{ children: paras.map(p => new D.Paragraph({ children: [new D.TextRun(p)] })) }] });
+    const blob = await D.Packer.toBlob(doc);
+    return toB64(await blob.arrayBuffer());
+  },
+  /* sheets: [{ name, aoa, origin?, ref?, formulas?: {A1: 'B1*2'}, comments?: {A1: 'note'}, merges?: ['A1:C1'], cols?: [wch...] }] */
+  makeXlsx(sheets, bookType){
+    const wb = XLSX.utils.book_new();
+    for (const s of sheets){
+      const ws = XLSX.utils.aoa_to_sheet([]);
+      XLSX.utils.sheet_add_aoa(ws, s.aoa, { origin: s.origin || 'A1' });
+      if (s.ref) ws['!ref'] = s.ref;     // force a used range that does not start at A1
+      for (const [a, f] of Object.entries(s.formulas || {})) ws[a] = { t: 's', v: '', f };
+      for (const [a, text] of Object.entries(s.comments || {})) {
+        if (!ws[a]) ws[a] = { t: 'z' };
+        ws[a].c = [{ a: 'Issuer', t: text }];
+      }
+      if (s.merges) ws['!merges'] = s.merges.map((m) => XLSX.utils.decode_range(m));
+      if (s.cols) ws['!cols'] = s.cols.map((wch) => ({ wch }));
+      XLSX.utils.book_append_sheet(wb, ws, s.name);
+    }
+    return XLSX.write(wb, { type: 'base64', bookType: bookType || 'xlsx' });
+  },
+  readXlsx(b64){
+    const wb = XLSX.read(b64, { type: 'base64', cellStyles: true });
+    const out = { sheetNames: wb.SheetNames, sheets: {} };
+    for (const n of wb.SheetNames){
+      const ws = wb.Sheets[n];
+      const cells = {}, formulas = {}, comments = {};
+      for (const k of Object.keys(ws)) {
+        if (k[0] === '!') continue;
+        cells[k] = ws[k].v;
+        if (ws[k].f) formulas[k] = ws[k].f;
+        if (ws[k].c) comments[k] = ws[k].c.map((c) => c.t).join('\n');
+      }
+      const merges = (ws['!merges'] || []).map((m) => XLSX.utils.encode_range(m));
+      const cols = (ws['!cols'] || []).map((c) => (c && c.wch != null ? Math.round(c.wch) : null));
+      const ref = ws['!ref'] || null;
+      let aoa = [];
+      if (ref){
+        const r = XLSX.utils.decode_range(ref);
+        aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', range: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: r.e }) });
+      }
+      out.sheets[n] = { ref, cells, aoa, formulas, comments, merges, cols };
+    }
+    return out;
+  },
+  async mammothText(b64){
+    const r = await mammoth.extractRawText({ arrayBuffer: fromB64(b64).buffer });
+    return { text: r.value, messages: r.messages.map(m => m.message) };
+  }
+};
+</script>
+</body></html>

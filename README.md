@@ -50,6 +50,7 @@ Details, metric definitions and how to add cases: [`eval/README.md`](eval/README
 | `kb/` | Plain-text knowledge base folder for `engine.js` (see `kb/README.txt`). |
 | `eval/` | Evaluation harness for the engine: held-out question set, retrieval and groundedness metrics, CI drift canary. See `eval/README.md`. |
 | `test/` | Behaviour checks for `engine.js`, `proxy.js` and `proxy.php` against a local fake of the Anthropic API. Run `node test/servers.js`; CI runs it on Node 18 to 24. |
+| `LICENSE` | MIT. |
 
 ## Quick start (no server code at all)
 
@@ -274,3 +275,7 @@ point it at the engine's URL and generation switches to server-side retrieval.
 scores questions against the *server's* knowledge base via `/search`, and page 1
 gains "Check engine" / "Push bucket to engine" buttons to sync your local
 documents up with one click.
+
+## License
+
+MIT. See `LICENSE`.

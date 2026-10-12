@@ -736,8 +736,9 @@ const backend = (() => {
     del: async k => { delete mem[k]; } };
 })();
 const store = {
-  async save(key, val){
-    try{ await backend.set(key, JSON.stringify(val)); return true; }
+  save: (key, val) => store.saveJson(key, JSON.stringify(val)),
+  async saveJson(key, json){
+    try{ await backend.set(key, json); return true; }
     catch(e){
       console.warn("persist failed", e);
       if(backend.name === "local") toast("Browser storage quota hit. Use “Export workspace file” to keep your bucket", true);
@@ -746,6 +747,10 @@ const store = {
   },
   async load(key){
     try{ const v = await backend.get(key); return v ? JSON.parse(v) : null; }
+    catch(e){ return null; }
+  },
+  async raw(key){
+    try{ return (await backend.get(key)) ?? null; }
     catch(e){ return null; }
   },
   async del(key){ try{ await backend.del(key); }catch(e){} }
@@ -769,9 +774,12 @@ async function runDocsSave(){
   }finally{ _docsSaving = false; }
 }
 async function saveDocsOnce(){
+  const meta = await store.load("cs-docs-meta");
+  if(meta && typeof meta.gen === "number" && meta.gen !== _docsGen){ mergeDocs(await loadDocs()); renderDocs(); }
+  const saving = S.docs.filter(d => !d._loading);
   const shards = [];
   let cur = [], curSize = 2;
-  for(const d of S.docs){
+  for(const d of saving){
     const s = JSON.stringify(serializableDoc(d));
     if(curSize + s.length > SHARD_BUDGET && cur.length){ shards.push(cur); cur = []; curSize = 2; }
     cur.push(serializableDoc(d)); curSize += s.length + 1;
@@ -793,7 +801,7 @@ async function saveDocsOnce(){
     toast("Couldn't save the whole bucket to browser storage. Use “Export workspace file” to keep it", true);
     return;                       // previous generation and manifest remain intact
   }
-  if(!(await store.save("cs-docs-meta", { gen, shards: shards.length, count: S.docs.length, at: Date.now() }))){
+  if(!(await store.save("cs-docs-meta", { gen, shards: shards.length, count: saving.length, at: Date.now() }))){
     for(let i = 0; i < written; i++) await store.del(`cs-docs-g${gen}-${i}`);
     return;
   }
@@ -803,6 +811,7 @@ async function saveDocsOnce(){
   }
   _docsGen = gen;
   _lastShardCount = shards.length;
+  _docsBase = new Set(saving.map(d => d.id));
 }
 async function loadDocs(){
   const meta = await store.load("cs-docs-meta");
@@ -826,7 +835,109 @@ async function loadDocs(){
   }
   return [];
 }
-const persistQs = () => store.save("cs-questions", S.questions);
+let _qsSaving = null, _qsAgain = false;
+function persistQs(){
+  if(_qsSaving){ _qsAgain = true; return _qsSaving; }
+  return (_qsSaving = (async () => {
+    let ok = false;
+    try{ do{ _qsAgain = false; ok = await saveQsOnce(); }while(_qsAgain); }
+    finally{ _qsSaving = null; }
+    return ok;
+  })());
+}
+async function saveQsOnce(){
+  const stored = await store.raw("cs-questions");
+  if(stored !== null && stored !== _qsSeen){
+    let remote = null;
+    try{ remote = JSON.parse(stored); }catch(e){}
+    if(Array.isArray(remote)){ mergeQuestions(remote); _qsSeen = stored; renderLedger(); }
+  }
+  const json = JSON.stringify(S.questions);
+  if(!(await store.saveJson("cs-questions", json))) return false;
+  _qsSeen = json;
+  _qsBase = new Map(S.questions.map(q => [q.id, qSig(q)]));
+  return true;
+}
+
+/* ---------- two tabs on one browser ----------
+   Each tab holds the bucket and the ledger in memory and saves them whole, so a tab left
+   open used to overwrite everything another tab had done since with its own stale copy.
+   Now a save first checks whether another tab saved since this tab last looked and merges
+   by id if so, and a tab pulls another tab's changes as soon as they land (the storage
+   event) or when it comes back into view. Per question, a side that did not change it
+   takes the other side's version; when both changed it, this tab's copy wins, since it may
+   be generating or editing that row here. A deletion on either side sticks and an addition
+   on either side is kept. */
+const qSig = q => JSON.stringify(Object.fromEntries(Object.keys(q).sort().filter(k => q[k] !== undefined).map(k => [k, q[k]])));
+let _qsBase = new Map(), _qsSeen = null, _docsBase = new Set();
+function mergeQuestions(remote){
+  const local = new Map(S.questions.map(q => [q.id, q]));
+  const out = [], inRemote = new Set(), base = new Map();
+  let keptLocal = false;
+  for(const raw of remote){
+    if(!raw || typeof raw.id !== "string" || inRemote.has(raw.id)) continue;
+    inRemote.add(raw.id);
+    const r = normaliseQuestion(raw);
+    if(raw.status === "working") r.status = "working";        // still being generated over there
+    base.set(r.id, qSig(r));
+    const l = local.get(r.id), was = _qsBase.get(r.id);
+    if(!l){ if(was === undefined) out.push(r); else keptLocal = true; continue; }   // added there, or deleted here
+    const ls = qSig(l);
+    if(ls === base.get(r.id)){ out.push(l); continue; }
+    if(ls !== was){ out.push(l); keptLocal = true; continue; }  // changed here
+    // changed only there: update in place, so a generation holding this object still lands
+    for(const k of Object.keys(l)) if(!(k in r)) delete l[k];
+    Object.assign(l, r);
+    out.push(l);
+  }
+  for(const l of S.questions) if(!inRemote.has(l.id) && !_qsBase.has(l.id)){ out.push(l); keptLocal = true; }
+  S.questions = out;
+  _qsBase = base;
+  return keptLocal;
+}
+function mergeDocs(remote){
+  const local = new Map(S.docs.map(d => [d.id, d]));
+  const remoteIds = new Set(remote.map(d => d.id));
+  const out = [];
+  let keptLocal = false;
+  for(const d of remote){
+    if(local.has(d.id)) out.push(local.get(d.id));
+    else if(_docsBase.has(d.id)) keptLocal = true;               // deleted here
+    else out.push(d);                                            // added there
+  }
+  for(const d of S.docs) if(!remoteIds.has(d.id) && !_docsBase.has(d.id)){ out.push(d); keptLocal = true; }
+  S.docs = out;
+  _docsBase = remoteIds;
+  return keptLocal;
+}
+let _syncTimer = null;
+const syncSoon = () => { clearTimeout(_syncTimer); _syncTimer = setTimeout(syncFromOtherTabs, 120); };
+async function syncFromOtherTabs(){
+  let changed = false;
+  const meta = await store.load("cs-docs-meta");
+  if(!_docsSaving && meta && typeof meta.gen === "number" && meta.gen !== _docsGen){
+    if(mergeDocs(await loadDocs())) persistDocs();
+    renderDocs();
+    changed = true;
+  }
+  const stored = await store.raw("cs-questions");
+  if(!_qsSaving && stored !== null && stored !== _qsSeen){
+    let remote = null;
+    try{ remote = JSON.parse(stored); }catch(e){}
+    if(Array.isArray(remote)){
+      const kept = mergeQuestions(remote);
+      _qsSeen = stored;
+      renderLedger();
+      if(kept) persistQs();
+      changed = true;
+    }
+  }
+  if(changed) toast("Updated with changes from another tab");
+}
+if(backend.name === "local") window.addEventListener("storage", e => {
+  if(e.key === "cs-docs-meta" || e.key === "cs-questions") syncSoon();
+});
+document.addEventListener("visibilitychange", () => { if(!document.hidden) syncSoon(); });
 
 /* ---------- file parsing ---------- */
 function extOf(name){ return name.split(".").pop().toLowerCase(); }
@@ -2534,8 +2645,13 @@ $("engine-push").onclick = async () => {
   const savedTheme = await store.load("cs-theme");
   if(savedTheme === "dark" || savedTheme === "light"){ theme = savedTheme; applyTheme(); }
   S.docs = await loadDocs();
-  const qs = await store.load("cs-questions");
+  _docsBase = new Set(S.docs.map(d => d.id));
+  const qsRaw = await store.raw("cs-questions");
+  let qs = null;
+  try{ qs = qsRaw ? JSON.parse(qsRaw) : null; }catch(e){}
   if(Array.isArray(qs)) S.questions = qs.map(normaliseQuestion);
+  _qsSeen = qsRaw;
+  _qsBase = new Map(S.questions.map(q => [q.id, qSig(q)]));
   const st = await store.load("cs-settings");
   if(st && st.lengths){
     S.settings = { ...S.settings, ...st, key: "" };

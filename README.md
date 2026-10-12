@@ -55,6 +55,8 @@ Details, metric definitions and how to add cases: [`eval/README.md`](eval/README
 
 1. Upload `index.html` to any web root, e.g. `public_html/rfp/index.html`.
 2. Open it in a browser. Work persists in each visitor's browser storage (localStorage).
+   Two tabs of the same copy stay in step: each picks up the other's changes, and
+   a save merges rather than overwrites.
 3. Each user opens **⚙ AI settings** and picks a provider:
    - **Claude (your Anthropic API key)**: paste a key from console.anthropic.com
      (defaults to `claude-sonnet-5-5`; type `claude-sonnet-4-6` in the Model field

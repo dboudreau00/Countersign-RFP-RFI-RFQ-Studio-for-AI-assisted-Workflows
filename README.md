@@ -55,7 +55,7 @@ into that folder only; see [`e2e/README.md`](e2e/README.md).
 | `eval/` | Evaluation harness for the engine: held-out question set, retrieval and groundedness metrics, CI drift canary. See `eval/README.md`. |
 | `test/` | Behaviour checks for `engine.js`, `proxy.js` and `proxy.php` against a local fake of the Anthropic API. Run `node test/servers.js`; CI runs it on Node 18 to 24. |
 | `e2e/` | Browser end-to-end suite for `index.html` (Playwright, mocked LLM endpoints). See `e2e/README.md`. |
-| `LICENSE` | MIT. |
+| `LICENSE` | GNU AGPL-3.0. |
 
 ## Quick start (no server code at all)
 
@@ -281,6 +281,10 @@ scores questions against the *server's* knowledge base via `/search`, and page 1
 gains "Check engine" / "Push bucket to engine" buttons to sync your local
 documents up with one click.
 
-## License
+## Licence
 
-MIT. See `LICENSE`.
+[GNU AGPL-3.0](LICENSE) © 2026 elemosecurity.
+
+You may run, study, change and share it. If you offer a modified version to
+other people over a network, the licence asks you to offer them its source;
+running it for your own organisation asks nothing of you.

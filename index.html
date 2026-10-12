@@ -896,7 +896,7 @@ function chunksFor(doc){
   const out = [];
   for(let i = 0; i < doc.text.length; i += CHUNK_SIZE){
     const t = doc.text.slice(i, i + CHUNK_SIZE + 200);
-    out.push({ text: t, low: t.toLowerCase() });
+    out.push({ text: t, low: lowText(t) });
   }
   doc._chunks = out;
   return out;
@@ -924,9 +924,39 @@ function stemWord(w){
   if(w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) return w.slice(0,-1);
   return w;
 }
+/* Same tokens as engine.js: letters and digits of any script, Chinese and Japanese as
+   overlapping character pairs, a short version joined to the word before it ("SOC 2",
+   "TLS 1.3", "Type II" give "soc2", "tls1.3", "type2") and percentages kept whole, so
+   "SOC 1" is not taken for "SOC 2" and "Zürich" is not cut to "rich". */
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+const CJK_SPLIT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+|[^\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+/gu;
+const REF_WORDS = new Set(("section sections question questions requirement requirements req item items part " +
+  "clause appendix annex page step table figure exhibit attachment chapter paragraph point no number q").split(" "));
+const ROMAN = { i: "1", ii: "2", iii: "3", iv: "4" };
+const ROMAN_WORDS = /^(type|tier|level|phase|class|stage)$/;
+const lowText = (t) => String(t).normalize("NFKC").toLowerCase();
 function keywords(q){
-  return [...new Set(q.toLowerCase().replace(/[^a-z0-9 ]/g," ").split(/\s+/)
-    .filter(w => w.length > 2 && !STOP.has(w)))];
+  const text = lowText(q);
+  const out = [];
+  for(const run of text.split(/[^\p{L}\p{N}]+/u)){
+    if(!run) continue;
+    if(!CJK.test(run)){ out.push(run); continue; }
+    for(const part of run.match(CJK_SPLIT)){
+      if(!CJK.test(part)){ out.push(part); continue; }
+      if(part.length === 1) out.push(part);
+      for(let i = 0; i + 1 < part.length; i++) out.push(part.slice(i, i + 2));
+    }
+  }
+  const joined = (word, num, separated) => {
+    if(STOP.has(word) || REF_WORDS.has(word) || CJK.test(word)) return;
+    if(separated || num.includes(".")) out.push(word + num.replace(/\.0+$/, ""));
+  };
+  for(const m of text.matchAll(/(?<![\p{L}\p{N}])(\p{L}+)([ -]?)(\d{1,2}(?:\.\d{1,2})?)(?![\p{L}\p{N}]|\.\d|\s?%)/gu))
+    joined(m[1], m[3], !!m[2]);
+  for(const m of text.matchAll(/(?<![\p{L}\p{N}])(type|tier|level|phase|class|stage)[ -](iv|i{1,3})(?![\p{L}\p{N}])/gu))
+    joined(m[1], ROMAN[m[2]], true);
+  for(const m of text.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s?%/g)) out.push(m[1] + "%");
+  return [...new Set(out.filter(w => CJK.test(w) || (/\d/.test(w) && /[\p{L}%]/u.test(w)) || (w.length > 2 && !STOP.has(w))))];
 }
 /* Word-boundary matcher: does `kw` appear in `lowText` as a word, allowing a short
    inflection suffix ("hosting" -> "hosted", "policies" -> "policy")? A raw substring
@@ -940,8 +970,22 @@ function keywords(q){
    - End with "not followed by a letter" rather than \b, so a keyword still matches
      across a letter/digit junction: "iso" has to match "iso27001" and "aes" "aes256". */
 const _kwRe = new Map();
+const escRe = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function kwRegex(kw){
   let re = _kwRe.get(kw);
+  if(re) return re;
+  let m;
+  if(CJK.test(kw)){
+    re = new RegExp(escRe(kw), "u");                      // the script has no word boundaries
+  } else if((m = /^(\d+(?:\.\d+)?)%$/.exec(kw))){
+    re = new RegExp("(?<![\\d.])" + escRe(m[1]) + "\\s?%", "u");
+  } else if((m = /^(\p{L}+)(\d{1,2}(?:\.\d{1,2})?)$/u.exec(kw))){
+    // "soc2" matches "SOC 2", "SOC-2" and "SOC2"; "type2" also matches "Type II"
+    const [, word, num] = m;
+    const roman = ROMAN_WORDS.test(word) ? Object.keys(ROMAN).find(r => ROMAN[r] === num) : null;
+    const numRe = escRe(num) + (num.includes(".") ? "" : "(?:\\.0+)?");
+    re = new RegExp("(?<![\\p{L}\\p{N}])" + escRe(word) + "(?:[ -]?" + numRe + (roman ? "|[ -]" + roman : "") + ")(?![\\p{L}\\p{N}]|\\.\\d)", "u");
+  }
   if(!re){
     const stem = stemWord(kw);
     let i = 0;
@@ -957,19 +1001,19 @@ function kwRegex(kw){
     // harmless, but as a prefix it would match "data" and "not". Keep the full word
     // whenever stemming leaves too little to be distinctive.
     if(prefix.length < 4) prefix = kw;
-    prefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    re = new RegExp("\\b" + prefix + "[a-z]{0,3}(?![a-z])");
-    _kwRe.set(kw, re);
+    // letters of any script count as word characters on both sides
+    re = new RegExp("(?<![\\p{L}\\p{N}])" + escRe(prefix) + "\\p{L}{0,3}(?!\\p{L})", "u");
   }
+  _kwRe.set(kw, re);
   return re;
 }
-const hasKw = (lowText, kw) => kwRegex(kw).test(lowText);
+const hasKw = (low, kw) => kwRegex(kw).test(low);
 function retrieve(question, budget = 11000){
   const kws = keywords(question);
   const scored = [];
   for(const d of S.docs){
     // cheap doc-level prescreen so a 500-source bucket doesn't scan every chunk
-    if(!d._low) d._low = d.text.toLowerCase();
+    if(!d._low) d._low = lowText(d.text);
     let hit = false;
     for(const k of kws){ if(hasKw(d._low, k)){ hit = true; break; } }
     if(!hit) continue;
@@ -1875,7 +1919,7 @@ function bucketDocFreq(k){
   if(_kwMemo.has(k)) return _kwMemo.get(k);
   let n = 0;
   for(const d of S.docs){
-    if(!d._low) d._low = d.text.toLowerCase();
+    if(!d._low) d._low = lowText(d.text);
     if(hasKw(d._low, k)) n++;
   }
   _kwMemo.set(k, n);

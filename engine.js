@@ -197,17 +197,19 @@ function loadKnowledgeBase() {
     }
   } catch (e) { /* file absent is fine */ }
   // 2. plain-text directory
-  try {
-    for (const f of fs.readdirSync(KB_DIR)) {
-      if (!/\.(txt|md|csv|json)$/i.test(f)) continue;
-      if (/^countersign-data\.json$/i.test(f) || /^README\.txt$/i.test(f)) continue; // workspace exports & folder docs aren't KB sources
+  let names = [];
+  try { names = fs.readdirSync(KB_DIR); } catch (e) { /* dir absent is fine */ }
+  for (const f of names) {
+    if (!/\.(txt|md|csv|json)$/i.test(f)) continue;
+    if (/^countersign-data\.json$/i.test(f) || /^README\.txt$/i.test(f)) continue; // workspace exports & folder docs aren't KB sources
+    try {
       if (!addDoc(f, fs.readFileSync(path.join(KB_DIR, f), "utf8"), false)) continue;
-      KB.files.set(f, f);
-      // a pushed copy of a DATA_FILE document supersedes it
-      const dup = fromData.get(canonicalName(f));
-      if (dup !== undefined && dup !== f) KB.docs.delete(dup);
-    }
-  } catch (e) { /* dir absent is fine */ }
+    } catch (e) { console.warn(`[kb] skipped ${f}: ${e.message}`); continue; }   // one unreadable entry must not end the scan
+    KB.files.set(f, f);
+    // a pushed copy of a DATA_FILE document supersedes it
+    const dup = fromData.get(canonicalName(f));
+    if (dup !== undefined && dup !== f) KB.docs.delete(dup);
+  }
   reindex();
 }
 

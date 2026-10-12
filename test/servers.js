@@ -267,6 +267,7 @@ async function main() {
     const kb2 = path.join(WORK, "kb2");
     fs.mkdirSync(kb2);
     fs.writeFileSync(path.join(kb2, "SLA Policy (v2).txt"), "Uptime commitment is 99.95 percent on the Enterprise plan.");
+    fs.mkdirSync(path.join(kb2, "AAA-dir.txt"));   // an unreadable entry must not end the boot scan
     const dataFile = path.join(WORK, "data.json");
     fs.writeFileSync(dataFile, JSON.stringify({ app: "countersign", docs: [
       { name: "Whitepaper.pdf", text: "Encryption uses AES-256-GCM and keys rotate yearly in AWS KMS." },
@@ -318,7 +319,7 @@ async function main() {
     check(`${name} rejects a team token of the wrong length`, r.status === 401, String(r.status));
     r = await request(port, "POST", urlPath, { messages: [{ role: "user", content: "hi" }] }, { "X-Team-Token": "x".repeat(TOKEN.length) });
     check(`${name} rejects a team token of the right length but wrong value`, r.status === 401, String(r.status));
-    for (const messages of [[], ["hi"], { a: { role: "user", content: "hi" } }, null]) {
+    for (const messages of [[], ["hi"], [["hi"]], { a: { role: "user", content: "hi" } }, null]) {
       r = await request(port, "POST", urlPath, { messages }, T);
       check(`${name} rejects malformed messages ${JSON.stringify(messages)}`, r.status === 400, String(r.status));
     }

@@ -22,7 +22,8 @@
  *   KB_DIR=./kb               directory of plain-text sources
  *   DATA_FILE=./countersign-data.json
  *   MODEL=claude-sonnet-5-5   generation model
- *   ALLOW_ORIGIN=*            CORS origin for browser callers
+ *   ALLOW_ORIGIN=*            CORS origin for browser callers; with neither this nor a token
+ *                             set, requests from other origins are refused
  *   COUNTERSIGN_TOKEN=...     shared secret; required on every POST when set
  *   CONCURRENCY=2             parallel upstream calls for /batch (1 to 4)
  *
@@ -37,6 +38,7 @@
  */
 
 const http = require("http");
+const net = require("net");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
@@ -400,6 +402,24 @@ const fail = (res, code, message) => send(res, code, { error: { type: "engine_er
 
 // Hash both sides so the compare is constant-time in the token's length as well.
 const sha = (s) => crypto.createHash("sha256").update(String(s || ""), "utf8").digest();
+/* With no team token and no ALLOW_ORIGIN, the only protection is that the port is local, and a
+   web page open in the operator's own browser can still reach a local port. So refuse browser
+   requests from other origins, and Host names that are not loopback (a DNS name rebound to
+   127.0.0.1). curl, scripts and same-machine tools send no Origin and are unaffected. */
+const ORIGIN_CONFIGURED = !!process.env.ALLOW_ORIGIN;
+const isLoopback = (h) => h === "localhost" || h === "::1" || (net.isIPv4(h) && h.startsWith("127."));
+function browserRefusal(req) {
+  if (TEAM_TOKEN || ORIGIN_CONFIGURED) return null;
+  const rawHost = String(req.headers.host || "").toLowerCase();
+  const host = rawHost.startsWith("[") ? rawHost.slice(1, rawHost.indexOf("]")) : rawHost.split(":")[0];
+  if (isLoopback(HOST) && host && !isLoopback(host))
+    return "Host " + host + " is not allowed. Set COUNTERSIGN_TOKEN to serve other host names";
+  const origin = req.headers.origin;
+  if (origin && origin !== "http://" + req.headers.host)
+    return "Requests from web pages need COUNTERSIGN_TOKEN or ALLOW_ORIGIN on the engine";
+  return null;
+}
+
 function tokenOk(given) {
   return crypto.timingSafeEqual(sha(given), sha(TEAM_TOKEN));
 }
@@ -590,6 +610,8 @@ const routes = {
 
 const server = http.createServer((req, res) => {
   const url = req.url.split("?")[0];
+  const refusal = browserRefusal(req);
+  if (refusal) return fail(res, 403, refusal);
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
       "Access-Control-Allow-Origin": ALLOW_ORIGIN,
@@ -643,8 +665,7 @@ const server = http.createServer((req, res) => {
 });
 
 if (require.main === module) {
-  const loopback = /^(127\.\d+\.\d+\.\d+|::1|localhost)$/i.test(HOST);
-  if (!loopback && !TEAM_TOKEN && !ALLOW_NO_TOKEN) {
+  if (!isLoopback(HOST) && !TEAM_TOKEN && !ALLOW_NO_TOKEN) {
     console.error(`Refusing to listen on ${HOST} without COUNTERSIGN_TOKEN: anyone who can reach the port ` +
       "could spend your API key and rewrite the knowledge base. Set COUNTERSIGN_TOKEN, or ALLOW_NO_TOKEN=1 to accept that.");
     process.exit(1);
@@ -653,7 +674,8 @@ if (require.main === module) {
   server.listen(PORT, HOST, () =>
     console.log(
       `Countersign Engine on http://${HOST}:${PORT}  ·  ${KB.docs.size} docs / ${KB.chunks.length} chunks` +
-      (TEAM_TOKEN ? "  ·  token required" : "  ·  WARNING: no team token set")
+      (TEAM_TOKEN ? "  ·  token required" : "  ·  WARNING: no team token set" +
+        (ORIGIN_CONFIGURED ? "" : " (browser requests from other origins are refused)"))
     )
   );
 } else {

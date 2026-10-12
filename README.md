@@ -147,7 +147,10 @@ when it listens on `0.0.0.0`.
   and CORS never comes into play. `proxy.js` accepts `/proxy` at any mount point,
   so a subpath like `/rfp/proxy` works without extra configuration.
 - If the HTML really is served from a *different* origin than the proxy, set
-  `ALLOW_ORIGIN=https://your-site.example` (it defaults to `*`; tighten it).
+  `ALLOW_ORIGIN=https://your-site.example` or a team token. With neither, the proxy
+  answers only requests that come from no web page at all (curl, scripts) or from
+  its own origin, and only under a loopback host name: otherwise any site you visit
+  could spend your key through a proxy running on your machine.
 - Keep it alive with `pm2 start proxy.js` or a systemd unit.
 
 ### What the proxies enforce
@@ -212,6 +215,7 @@ so the message itself usually names the fix.
 | "The engine stream ended early" | The `/batch` connection dropped mid-stream. Unanswered rows are stamped **Failed**. Regenerate those individually. |
 | Requests fail only when self-hosted with the *built-in* Claude provider | The keyless built-in provider only works inside Claude.ai. Self-hosted deployments must use "Claude (your API key)", the team proxy, or the engine. |
 | `Failed to fetch` hitting the Node proxy from a page on another origin | Set `ALLOW_ORIGIN` to your site's origin, or reverse-proxy onto the same domain. |
+| `Engine 403: Requests from web pages need COUNTERSIGN_TOKEN or ALLOW_ORIGIN` (or `Proxy 403`) | The server has no team token and no `ALLOW_ORIGIN`, so it refuses browser requests from other origins. Set `COUNTERSIGN_TOKEN` (and enter it in AI settings) or set `ALLOW_ORIGIN` to the page's origin (`null` for a page opened from a file). |
 | Team token is empty after a page reload | Keys and tokens are held in memory for the session only and are never persisted. Re-enter it in **⚙ AI settings** after a reload. |
 | Browser storage quota errors with a huge bucket | localStorage is about 5 to 10 MB in most browsers, and a save briefly needs room for the old and the new copy of the bucket, so a bucket above roughly half the quota stops saving (removing a few documents does not help until it is back under that). Keep the master bucket in `countersign-data.json` and pull it with **⟳ Load from site directory** rather than relying on local persistence. |
 | `413 Request too large` from the proxy | A single question pulled a very large context. Raise `MAX_BODY_BYTES` in the proxy if you've raised the app's retrieval budget. |

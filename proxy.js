@@ -14,13 +14,16 @@
  *   COUNTERSIGN_TOKEN=secret      shared team passphrase (recommended)
  *   ALLOW_ORIGIN=https://you.com  CORS origin if the HTML is served from a
  *                                 different host/port than this proxy
- *                                 (default: * — tighten this in production)
+ *                                 (default: *, tighten this in production; with
+ *                                 neither this nor a token set, requests from other
+ *                                 origins are refused)
  *
  * In the app: AI settings -> "Team server proxy", URL: http://yourhost:8787/proxy
  * (If you reverse-proxy it behind the same domain as the HTML, CORS is a non-issue.)
  */
 
 const http = require("http");
+const net = require("net");
 const crypto = require("crypto");
 
 const API_KEY        = process.env.ANTHROPIC_API_KEY || "";
@@ -49,6 +52,24 @@ const fail = (res, code, message) =>
   send(res, code, { error: { type: "proxy_error", message } });
 
 /* Constant-time compare, to match proxy.php's hash_equals() */
+/* With no team token and no ALLOW_ORIGIN, the only protection is that the port is local, and a
+   web page open in the operator's own browser can still reach a local port. So refuse browser
+   requests from other origins, and Host names that are not loopback (a DNS name rebound to
+   127.0.0.1). curl, scripts and same-machine tools send no Origin and are unaffected. */
+const ORIGIN_CONFIGURED = !!process.env.ALLOW_ORIGIN;
+const isLoopback = (h) => h === "localhost" || h === "::1" || (net.isIPv4(h) && h.startsWith("127."));
+function browserRefusal(req) {
+  if (TEAM_TOKEN || ORIGIN_CONFIGURED) return null;
+  const rawHost = String(req.headers.host || "").toLowerCase();
+  const host = rawHost.startsWith("[") ? rawHost.slice(1, rawHost.indexOf("]")) : rawHost.split(":")[0];
+  if (isLoopback(HOST) && host && !isLoopback(host))
+    return "Host " + host + " is not allowed. Set COUNTERSIGN_TOKEN to serve other host names";
+  const origin = req.headers.origin;
+  if (origin && origin !== "http://" + req.headers.host)
+    return "Requests from web pages need COUNTERSIGN_TOKEN or ALLOW_ORIGIN on the proxy";
+  return null;
+}
+
 function tokenOk(given) {
   // hash both sides: constant-time in the token's length too
   const sha = (s) => crypto.createHash("sha256").update(String(s || ""), "utf8").digest();
@@ -56,6 +77,8 @@ function tokenOk(given) {
 }
 
 const server = http.createServer((req, res) => {
+  const refusal = browserRefusal(req);
+  if (refusal) return fail(res, 403, refusal);
   // CORS preflight
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
@@ -127,8 +150,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-const loopback = /^(127\.\d+\.\d+\.\d+|::1|localhost)$/i.test(HOST);
-if (!loopback && !TEAM_TOKEN && !ALLOW_NO_TOKEN) {
+if (!isLoopback(HOST) && !TEAM_TOKEN && !ALLOW_NO_TOKEN) {
   console.error(`Refusing to listen on ${HOST} without COUNTERSIGN_TOKEN: anyone who can reach the port ` +
     "could spend your API key. Set COUNTERSIGN_TOKEN, or ALLOW_NO_TOKEN=1 to accept that.");
   process.exit(1);
@@ -136,6 +158,7 @@ if (!loopback && !TEAM_TOKEN && !ALLOW_NO_TOKEN) {
 server.listen(PORT, HOST, () =>
   console.log(
     `Countersign proxy on http://${HOST}:${PORT}/proxy` +
-    (TEAM_TOKEN ? " (team token required)" : " (WARNING: no team token set)")
+    (TEAM_TOKEN ? " (team token required)" : " (WARNING: no team token set" +
+      (ORIGIN_CONFIGURED ? ")" : "; browser requests from other origins are refused)"))
   )
 );

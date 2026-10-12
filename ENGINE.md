@@ -39,7 +39,7 @@ node engine.js
 | `KB_DIR` | `<engine.js dir>/kb` | Directory of `.txt/.md/.csv/.json` sources |
 | `DATA_FILE` | `<engine.js dir>/countersign-data.json` | Workspace exported from the web app |
 | `MODEL` | `claude-sonnet-5-5` | Generation model. Set `MODEL=claude-sonnet-4-6` to keep the previous default. |
-| `ALLOW_ORIGIN` | `*` | CORS origin for browser callers; tighten in production |
+| `ALLOW_ORIGIN` | `*` | CORS origin for browser callers; tighten in production. With neither this nor `COUNTERSIGN_TOKEN` set, browser requests from other origins and non-loopback `Host` names are refused with a `403`. |
 | `CONCURRENCY` | `2` | Parallel upstream calls for `/batch` (max 4) |
 
 `KB_DIR` and `DATA_FILE` default to paths **next to `engine.js`**, not to the
@@ -284,6 +284,10 @@ $result = json_decode(curl_exec($ch), true);
   `COUNTERSIGN_TOKEN`. Keep the default and let the reverse proxy reach it locally.
   Browsers must send JSON, which forces a CORS preflight, so a restrictive
   `ALLOW_ORIGIN` also stops other sites from calling it from a visitor's browser.
+  With no token and no `ALLOW_ORIGIN` the engine refuses every browser request from
+  another origin, and any `Host` that is not `localhost`, `127.x` or `::1` (a DNS name
+  rebound to your machine), so a web page cannot drive a token-less engine on your
+  laptop. curl and scripts send no `Origin` and are not affected.
 - The engine holds the whole index in memory: a full 60 MB knowledge base is
   roughly 55k chunks. Retrieval takes about 30 to 80 ms for a typical question and up
   to about 150 ms for the 80-term maximum. Budget RAM for roughly 6 to 9 times the raw

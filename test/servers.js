@@ -241,6 +241,7 @@ async function main() {
 
     await documentChecks(T);
     await proxyChecks("proxy.js", proxyPort, "/rfp/proxy");
+    await browserGuardChecks();
     await bindChecks();
 
     const php = spawnSync("php", ["-m"], { encoding: "utf8" });
@@ -348,6 +349,42 @@ async function main() {
     for (const model of ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-haiku-4-5-20251001"]) {
       await request(port, "POST", urlPath, { model, max_tokens: 100, messages: [{ role: "user", content: "hi" }] }, T);
       check(`${name} still allows ${model}`, lastBody().model === model, lastBody().model);
+    }
+  }
+
+  async function browserGuardChecks() {
+    const kb3 = path.join(WORK, "kb3");
+    fs.mkdirSync(kb3);
+    fs.writeFileSync(path.join(kb3, "doc.txt"), "Encryption at rest uses AES-256-GCM.");
+    const base = { ANTHROPIC_API_KEY: "sk-test", COUNTERSIGN_TOKEN: "", HOST: "", KB_DIR: kb3, DATA_FILE: path.join(WORK, "absent.json") };
+    const q = { query: "encryption" }, msg = { messages: [{ role: "user", content: "hi" }] };
+    const ePort = await freePort(), pPort = await freePort(), oPort = await freePort();
+    const engineNoToken = await startProcess(NODE, [ENGINE], { ...base, PORT: String(ePort) }, ePort);
+    const proxyNoToken = await startProcess(NODE, [PROXY], { ...base, PORT: String(pPort) }, pPort);
+    const engineWithOrigin = await startProcess(NODE, [ENGINE], { ...base, PORT: String(oPort), ALLOW_ORIGIN: "https://app.example" }, oPort);
+    try {
+      let r = await request(ePort, "POST", "/search", q);
+      check("no token: a plain client (no Origin) still works", r.status === 200, String(r.status));
+      r = await request(ePort, "POST", "/search", q, { Origin: "https://evil.example" });
+      check("no token: a request from another origin is refused", r.status === 403, String(r.status));
+      r = await request(ePort, "OPTIONS", "/search", undefined, { Origin: "https://evil.example", "Access-Control-Request-Method": "POST" });
+      check("no token: the CORS preflight from another origin is refused", r.status === 403, String(r.status));
+      r = await request(ePort, "POST", "/search", q, { Host: "rebound.evil.example:" + ePort });
+      check("no token: a non-loopback Host (DNS rebinding) is refused", r.status === 403, String(r.status));
+      r = await request(ePort, "POST", "/search", q, { Host: "localhost:" + ePort });
+      check("no token: Host localhost is accepted", r.status === 200, String(r.status));
+      r = await request(ePort, "POST", "/search", q, { Host: "[::1]:" + ePort });
+      check("no token: Host [::1] is accepted", r.status === 200, String(r.status));
+      r = await request(pPort, "POST", "/proxy", msg, { Origin: "https://evil.example" });
+      check("no token: proxy.js refuses a request from another origin", r.status === 403, String(r.status));
+      r = await request(pPort, "POST", "/proxy", msg);
+      check("no token: proxy.js still serves a plain client", r.status === 200, String(r.status));
+      r = await request(oPort, "POST", "/search", q, { Origin: "https://app.example" });
+      check("with ALLOW_ORIGIN set, that origin is served", r.status === 200, String(r.status));
+      r = await request(enginePort, "POST", "/search", q, { ...T, Origin: "https://evil.example" });
+      check("with a team token, other origins are left to the token check", r.status === 200, String(r.status));
+    } finally {
+      engineNoToken.kill(); proxyNoToken.kill(); engineWithOrigin.kill();
     }
   }
 

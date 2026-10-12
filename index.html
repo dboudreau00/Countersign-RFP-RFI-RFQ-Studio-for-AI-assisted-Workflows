@@ -64,7 +64,7 @@ body{
 ::selection{background:var(--green);color:var(--paper)}
 
 /* ---------- shell ---------- */
-.shell{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+.shell{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
 .rail{
   border-right:1px solid var(--line-strong);
   background:var(--card);
@@ -149,7 +149,8 @@ table{width:100%;border-collapse:collapse;font-size:13.5px}
 th{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);text-align:left;padding:8px 10px;border-bottom:1.5px solid var(--ink)}
 td{padding:10px;border-bottom:1px solid var(--line);vertical-align:middle}
 tr:last-child td{border-bottom:none}
-.ftype{font-family:var(--mono);font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:4px;border:1px solid var(--line-strong)}
+.ftype{font-family:var(--mono);font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:4px;border:1px solid var(--line-strong);white-space:nowrap}
+#doc-list{overflow-x:auto}
 .ftype.pdf{color:var(--red);border-color:var(--red)}
 .ftype.docx{color:var(--blue);border-color:var(--blue)}
 .ftype.xlsx,.ftype.csv{color:var(--green);border-color:var(--green)}
@@ -171,7 +172,7 @@ tr:last-child td{border-bottom:none}
   font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--green);
   border:1.5px solid var(--green);border-radius:5px;padding:3px 7px;white-space:nowrap;margin-top:1px;
 }
-.q-text{flex:1;font-weight:500;font-size:14px;line-height:1.45}
+.q-text{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:500;font-size:14px;line-height:1.45}
 .q-meta{display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:118px}
 .stamp{
   font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
@@ -222,6 +223,7 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
 .gap-item{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line)}
 .gap-item:last-child{border-bottom:none}
 .gap-item .clause{margin-top:0}
+.gap-body{flex:1;min-width:0;overflow-wrap:anywhere}
 .gap-kw{font-family:var(--mono);font-size:10.5px;color:var(--red);background:var(--red-soft);border-radius:4px;padding:1px 6px;margin:2px 4px 0 0;display:inline-block}
 .map-panel{border:1px dashed var(--green);border-radius:8px;padding:14px;margin-top:14px;background:var(--green-soft)}
 .map-panel h3{font-family:var(--disp);font-size:13px;font-weight:650;margin-bottom:10px}
@@ -264,12 +266,18 @@ label.field{display:block;font-family:var(--mono);font-size:10.5px;letter-spacin
 @keyframes sp{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media (max-width:900px){
-  .shell{grid-template-columns:1fr}
+  .shell{grid-template-columns:minmax(0,1fr)}
   .rail{position:static;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center}
-  .rail-foot{margin:0;flex-direction:row}
+  .rail-foot{margin:0;flex-direction:row;flex-wrap:wrap}
   .step b{font-size:12px}.step span{display:none}
   .grid2,.grid3,.fmt-cards{grid-template-columns:1fr}
   .main{padding:20px 16px 60px}
+}
+@media (max-width:600px){
+  .q-head,.gap-item{flex-wrap:wrap}
+  .q-text,.gap-body{flex-basis:180px}
+  .clause{white-space:normal;overflow-wrap:anywhere;max-width:100%}
+  .q-meta{min-width:0}
 }
 </style>
 </head>
@@ -2150,7 +2158,7 @@ function renderGaps(){
     gapData.map(({ q, miss }) => `
       <div class="gap-item">
         <span class="clause" style="border-color:var(--red);color:var(--red)">${esc(q.ref)}</span>
-        <div style="flex:1">
+        <div class="gap-body">
           <div style="font-size:13.5px;font-weight:500">${esc(q.text.slice(0,140))}${q.text.length > 140 ? "…" : ""}</div>
           <div style="margin-top:3px">${miss.length ? "Bucket has nothing on: " + miss.map(k => `<span class="gap-kw">${esc(k)}</span>`).join("") : '<span class="hint mono">weak matches only, so the answer will lean generic</span>'}</div>
         </div>

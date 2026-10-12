@@ -90,6 +90,8 @@ const STOP = new Set(("the a an and or of to in for with on is are does do your 
 /* Light stemmer so query/doc inflections match ("supports"→"support", "policies"→"policy").
    Must be applied identically at index time (termFreqs) and query time — tf/df keys are stems. */
 const stem = (w) => {
+  // joined numbers, percentages and CJK pairs are matched exactly as written
+  if (!/^\p{L}+$/u.test(w) || CJK.test(w)) return w;
   const base = stripSuffix(w);
   // Fold a trailing "e" so "service"/"services", "type"/"types", "license"/"licensing"
   // and "price"/"pricing" meet at one stem (stripping "es"/"ing" alone left "servic" vs "service").
@@ -107,15 +109,50 @@ function stripSuffix(w) {
   if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) return w.slice(0, -1);
   return w;
 }
-/* Query-side tokenizer. Two-letter words are dropped as noise EXCEPT the ones the
-   alias table knows about ("dr", "sla"…), otherwise those aliases could never fire. */
-const tokenize = (s) => [...new Set(String(s).toLowerCase().replace(/[^a-z0-9 ]/g, " ")
-  .split(/\s+/).filter(w => (w.length > 2 || ALIASES[w]) && !STOP.has(w)))];
+/* Tokens, the same for documents and questions. Letters and digits of any script are word
+   characters, so accented words stay whole ("zürich", "données"). Han and kana are written
+   without spaces, so a run of them becomes overlapping character pairs. A short number
+   after a word ("SOC 2", "TLS 1.3", "OAuth 2.0", "Type II") also yields a joined token
+   ("soc2", "tls1.3", "oauth2", "type2"): the bare number is too short to index, and
+   "SOC 1" must not look like "SOC 2". A percentage ("99.9%") is kept whole. */
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
+const CJK_SPLIT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+|[^\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+/gu;
+// "Section 3", "Question 7": numbered references, not topics
+const REF_WORDS = new Set(("section sections question questions requirement requirements req item items part " +
+  "clause appendix annex page step table figure exhibit attachment chapter paragraph point no number q").split(" "));
+const ROMAN = { i: "1", ii: "2", iii: "3", iv: "4" };
+function textTokens(s) {
+  const text = String(s).normalize("NFKC").toLowerCase();
+  const out = [];
+  for (const run of text.split(/[^\p{L}\p{N}]+/u)) {
+    if (!run) continue;
+    if (!CJK.test(run)) { out.push(run); continue; }
+    for (const part of run.match(CJK_SPLIT)) {
+      if (!CJK.test(part)) { out.push(part); continue; }
+      if (part.length === 1) out.push(part);
+      for (let i = 0; i + 1 < part.length; i++) out.push(part.slice(i, i + 2));
+    }
+  }
+  const joined = (word, num, separated) => {
+    if (STOP.has(word) || REF_WORDS.has(word) || CJK.test(word)) return;
+    // "soc2" written without a space is already a token of its own
+    if (separated || num.includes(".")) out.push(word + num.replace(/\.0+$/, ""));
+  };
+  for (const m of text.matchAll(/(?<![\p{L}\p{N}])(\p{L}+)([ -]?)(\d{1,2}(?:\.\d{1,2})?)(?![\p{L}\p{N}]|\.\d|\s?%)/gu))
+    joined(m[1], m[3], !!m[2]);
+  for (const m of text.matchAll(/(?<![\p{L}\p{N}])(type|tier|level|phase|class|stage)[ -](iv|i{1,3})(?![\p{L}\p{N}])/gu))
+    joined(m[1], ROMAN[m[2]], true);
+  for (const m of text.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s?%/g)) out.push(m[1] + "%");
+  return out;
+}
+/* Two-letter words are dropped as noise EXCEPT, in questions, the ones the alias table
+   knows about ("dr", "sla"…), otherwise those aliases could never fire. */
+const keepToken = (w, query) => CJK.test(w) || (/\d/.test(w) && /[\p{L}%]/u.test(w)) ||
+  ((w.length > 2 || (query && ALIASES[w])) && !STOP.has(w));
+const tokenize = (s) => [...new Set(textTokens(s).filter((w) => keepToken(w, true)))];
 const termFreqs = (s) => {
   const tf = Object.create(null);
-  for (const w of String(s).toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/)) {
-    if (w.length > 2 && !STOP.has(w)) { const t = stem(w); tf[t] = (tf[t] || 0) + 1; }
-  }
+  for (const w of textTokens(s)) if (keepToken(w, false)) { const t = stem(w); tf[t] = (tf[t] || 0) + 1; }
   return tf;
 };
 

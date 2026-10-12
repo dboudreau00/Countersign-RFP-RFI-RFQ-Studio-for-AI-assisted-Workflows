@@ -144,6 +144,19 @@ async function main() {
     const aliased = engine.retrieve("What is your uptime? Describe your pricing.").missing_terms;
     check("a term is covered when only its alias is documented (uptime/availability, pricing/cost)", !aliased.length, aliased.join(", "));
     check("a term is still missing when none of its aliases is documented", engine.retrieve("Do you support SSO?").missing_terms.length > 0);
+    // short versions, percentages, accents and CJK
+    engine.KB.docs.clear();
+    engine.addDoc("trust", "We hold a SOC 2 Type II report, support TLS 1.3 and OAuth 2.0, and commit to 99.95% uptime.", false);
+    engine.addDoc("eu", "Kundendaten werden in Zürich gespeichert.", false);
+    engine.addDoc("jp", "お客様のデータは保存時に暗号化されています。", false);
+    console.log = () => {}; engine.reindex(); console.log = quiet;
+    const miss = (q) => engine.retrieve(q).missing_terms;
+    check("SOC 2 Type II, TLS 1.3, OAuth 2.0 and 99.95% are found as documented", !miss("SOC 2 Type II report, TLS 1.3, OAuth 2.0, 99.95% uptime").length, miss("SOC 2 Type II report, TLS 1.3, OAuth 2.0, 99.95% uptime").join(", "));
+    const versions = miss("Do you have a SOC 1 Type I report, TLS 1.0, OAuth 1.0 and 99.999% uptime?");
+    check("a different version or figure is reported missing, not matched", ["soc1", "type1", "tls1", "oauth1", "99.999%"].every((t) => versions.includes(t)), versions.join(", "));
+    check("a numbered reference is not treated as a topic", !engine.tokenize("Section 3: describe encryption").includes("section3"));
+    check("accented words stay whole", engine.tokenize("Zürich données").join() === "zürich,données" && engine.retrieve("Is data stored in Zürich?").sources.join() === "eu", engine.tokenize("Zürich données").join());
+    check("Japanese text is searchable", engine.retrieve("データは暗号化されていますか").sources[0] === "jp", JSON.stringify(engine.retrieve("データは暗号化されていますか").sources));
     engine.KB.docs.clear();
     engine.addDoc("x", "Backups run hourly.", false);
     console.log = () => {}; engine.reindex(); console.log = quiet;

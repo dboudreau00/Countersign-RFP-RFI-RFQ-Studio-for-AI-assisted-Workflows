@@ -294,8 +294,12 @@ $result = json_decode(curl_exec($ch), true);
   text size (about 580 MB resident for 60 MB of text).
 - No request-frequency throttling is built in. Add nginx `limit_req` for
   internet-facing deployments; every `/answer` call costs API credits.
-- Retrieval is lexical (TF-IDF with light suffix stemming + an acronym alias
-  table), which is transparent and dependency-free but not semantic: a question
+- Retrieval is lexical (TF-IDF with light English suffix stemming + an acronym alias
+  table). Words in any script are matched whole, Chinese and Japanese text by
+  overlapping character pairs, and a short version after a word is part of the term:
+  "SOC 1" and "SOC 2", "Type I" and "Type II", "TLS 1.2" and "TLS 1.3" are
+  different, so asking for one the documents do not mention shows up as a gap. It is
+  transparent and dependency-free but not semantic: a question
   phrased with entirely different vocabulary than your docs can miss. The `missing_terms` field
   tells you exactly when that happened. Swapping in embeddings later only
   requires replacing the `retrieve()` function; the API contract stays the same.

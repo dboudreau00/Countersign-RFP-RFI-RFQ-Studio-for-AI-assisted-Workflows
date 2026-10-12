@@ -235,12 +235,14 @@ That's the whole stack: one page, one proxy, one data file.
 
 ## Known limits
 
-- **Round-trip export rewrites the issuer's workbook through SheetJS**, which models
-  cell values, formulas and sheet structure but not every Excel feature. Data-validation
-  dropdowns, conditional formatting, comments, images and charts in the original
-  questionnaire are not carried into the completed copy. Cell values, the sheet layout
-  and other tabs survive. If the issuer requires their exact template back, paste the
-  answers into their file from the XLSX export instead.
+- **Round-trip export rewrites the issuer's workbook through SheetJS.** Cell values,
+  formulas, comments, merged cells, column widths and every other tab survive. Fonts,
+  fills, borders, conditional formatting, data-validation dropdowns, freeze panes, tab
+  colours, images and charts do not. Answers go into empty cells, and the app asks before
+  replacing a cell that already holds text or a formula. Check the guessed response
+  column in the mapping step: it skips flag columns such as "Answered (Y/N)" and columns
+  of formulas, and picks none rather than a doubtful one. If the issuer requires their
+  exact template back, paste the answers into their file from the XLSX export instead.
 - **Retrieval is lexical**, not semantic. A question worded with entirely different
   vocabulary than your documentation can score as a gap even when the material is there
   (the gap report lists the specific terms it could not find, so this is visible). It is

@@ -1441,6 +1441,41 @@ function headerRowOf(grid){
 }
 const firstDataRow = (grid) => headerRowOf(grid) + ($("map-header").checked ? 1 : 0);
 
+/* Where the vendor writes. A header naming a response, answer or reply scores highest,
+   comments or remarks next, and "vendor", "supplier" or "your" adds a point. A header about
+   the answer rather than the answer itself ("Answered", "Response date", "Y/N",
+   "Compliance", "Score") holds a flag and is never guessed, nor is the question or ref
+   column, nor one that is mostly formulas. On a tie the emptier column wins. The round-trip
+   export writes into this column, so no guess is better than a wrong one. */
+const ANS_FLAG = /\b(status|date|deadline|y\s*\/\s*n|yes\s*\/\s*no|compl(y|ies|iant|iance)|score|weight(ing)?|rating|answered|owner|name|id|type|category|priority|ref)\b/i;
+function answerHeaderScore(h){
+  h = String(h || "").trim();
+  if(!h || ANS_FLAG.test(h)) return 0;
+  let score = /respon|answer|repl(y|ies)/i.test(h) ? 2 : /comment|remark|explanation|narrative/i.test(h) ? 1 : 0;
+  if(/vendor|supplier|bidder|proposer|\byour\b/i.test(h)) score++;
+  return score;
+}
+function guessAnswerCol(grid, hr, nCols, skip){
+  const ws = rfpWorkbook && rfpWorkbook.Sheets[$("map-sheet").value];
+  const rows = grid.slice(hr + 1, hr + 201);
+  const qc = skip[0];
+  const questions = rows.filter(r => String(r[qc] || "").trim().length > 7).length;
+  let best = -1, bestScore = 0, bestFill = Infinity;
+  for(let c = 0; c < nCols; c++){
+    if(skip.includes(c)) continue;
+    const score = answerHeaderScore((grid[hr] || [])[c]);
+    if(!score) continue;
+    let formulas = 0;
+    if(ws) for(let r = hr + 1; r < hr + 1 + rows.length; r++){
+      const cell = ws[XLSX.utils.encode_cell({ r, c })];
+      if(cell && cell.f) formulas++;
+    }
+    if(formulas * 2 > Math.max(questions, 1)) continue;
+    const fill = rows.filter(r => String(r[c] || "").trim()).length;
+    if(score > bestScore || (score === bestScore && fill < bestFill)){ best = c; bestScore = score; bestFill = fill; }
+  }
+  return best;
+}
 function populateColumns(){
   const grid = sheetGrid($("map-sheet").value);
   const hr = headerRowOf(grid);
@@ -1469,9 +1504,7 @@ function populateColumns(){
   let refGuess = -1;
   header.forEach((h, c) => { if(/^(ref|#|id|no\.?|number|section|clause)$/i.test(String(h).trim())) refGuess = c; });
   $("map-ref").value = String(refGuess);
-  let ansGuess = -1;
-  header.forEach((h, c) => { if(/response|answer|vendor|supplier|reply/i.test(String(h))) ansGuess = c; });
-  $("map-ans").value = String(ansGuess);
+  $("map-ans").value = String(guessAnswerCol(grid, hr, nCols, [+$("map-q").value, refGuess]));
   previewMap();
 }
 function previewMap(){
@@ -2152,8 +2185,12 @@ $("download-btn").onclick = async () => {
   } else if(S.exportFmt === "roundtrip"){
     if(!(rfpWorkbook && rfpMapping && rfpMapping.ansCol >= 0))
       return toast("Round-trip needs a mapped spreadsheet RFP with a response column", true);
-    const ws = rfpWorkbook.Sheets[rfpMapping.sheet];
-    if(!ws) return toast(`Sheet “${rfpMapping.sheet}” isn't in the loaded workbook. Re-import the column mapping`, true);
+    const src = rfpWorkbook.Sheets[rfpMapping.sheet];
+    if(!src) return toast(`Sheet “${rfpMapping.sheet}” isn't in the loaded workbook. Re-import the column mapping`, true);
+    // Write into a copy. The loaded workbook stays as the issuer sent it, so a later export
+    // (fewer rows, edited answers) never carries answers left by an earlier one.
+    const ws = {};
+    for(const k of Object.keys(src)) ws[k] = k[0] === "!" ? src[k] : { ...src[k] };
     if(rfpMapping.truncated)
       return toast(`“${rfpMapping.sheet}” has cells beyond row ${SHEET_MAX_ROWS.toLocaleString()} or column ${SHEET_MAX_COLS}, so it can't be written back safely. Use the XLSX export instead`, true);
     // The writer walks the whole declared range, and formatting a whole column declares a
@@ -2181,8 +2218,32 @@ $("download-btn").onclick = async () => {
     else skipped += otherCopy.length;
     if(!targets.length && otherCopy.length)
       return toast("Nothing was written back: every answer came from a different copy of this workbook", true);
+    // An answer cell that already holds text or a formula belongs to the issuer (an
+    // instruction, a calculated flag) or to an earlier answer: replace it only with consent.
+    const addrOf = r => XLSX.utils.encode_cell({ r: r.srcRow, c: rfpMapping.ansCol });
+    const filled = targets.filter(r => {
+      const cell = ws[addrOf(r)];
+      return cell && (cell.f || cell.F || (norm(cell.v) && norm(cell.v) !== norm(r.answer)));
+    });
+    let kept = 0;
+    if(filled.length){
+      const one = filled.length === 1, first = ws[addrOf(filled[0])];
+      const shown = first.f ? "=" + first.f : norm(first.v);
+      if(!confirm(
+        `${filled.length} answer cell${one ? "" : "s"} in column ${XLSX.utils.encode_col(rfpMapping.ansCol)} already ${one ? "holds" : "hold"} text or a formula, ` +
+        `for example ${addrOf(filled[0])}: “${shown.length > 80 ? shown.slice(0, 80) + "…" : shown}”.\n\n` +
+        `Replace ${one ? "it" : "them"} with your answer${one ? "" : "s"}? Cancel keeps ${one ? "that cell as it is" : "those cells as they are"} and fills only the empty ones.`)){
+        kept = filled.length;
+        const keep = new Set(filled);
+        for(let i = targets.length - 1; i >= 0; i--) if(keep.has(targets[i])) targets.splice(i, 1);
+      }
+    }
     for(const r of targets){
-      ws[XLSX.utils.encode_cell({ r: r.srcRow, c: rfpMapping.ansCol })] = { t: "s", v: r.answer };
+      const addr = addrOf(r), old = ws[addr];
+      // the value and any formula are replaced; the cell's comment and style stay
+      ws[addr] = { t: "s", v: r.answer };
+      if(old && old.c) ws[addr].c = old.c;
+      if(old && old.s) ws[addr].s = old.s;
       // grow the used range so the new cells are actually serialised. A cell written
       // outside !ref is silently dropped by the writer
       range.s.r = Math.min(range.s.r, r.srcRow);
@@ -2193,10 +2254,13 @@ $("download-btn").onclick = async () => {
     }
     // check BEFORE writing: downloading an unchanged workbook alongside an error toast
     // is worse than not downloading at all
-    if(!written) return toast("No answers matched this workbook's mapped sheet, so nothing was written back", true);
+    if(!written) return toast(kept
+      ? "Nothing was written back: every answer cell already held text or a formula"
+      : "No answers matched this workbook's mapped sheet, so nothing was written back", true);
     ws["!ref"] = XLSX.utils.encode_range(range);
-    XLSX.writeFile(rfpWorkbook, safe + "_completed.xlsx");
-    return toast(`Wrote ${written} answers into ${rfpMapping.file}${skipped ? ` (${skipped} from elsewhere skipped)` : ""} → downloaded as ${safe}_completed.xlsx`);
+    XLSX.writeFile({ ...rfpWorkbook, Sheets: { ...rfpWorkbook.Sheets, [rfpMapping.sheet]: ws } }, safe + "_completed.xlsx");
+    const notes = [skipped ? `${skipped} from elsewhere skipped` : "", kept ? `${kept} filled cell${kept === 1 ? "" : "s"} kept` : ""].filter(Boolean).join(", ");
+    return toast(`Wrote ${written} answers into ${rfpMapping.file}${notes ? ` (${notes})` : ""} → downloaded as ${safe}_completed.xlsx`);
 
   } else { // docx
     if(typeof docx === "undefined") return toast("The DOCX library didn't load (CDN blocked?). Export as XLSX or CSV instead", true);

@@ -231,6 +231,8 @@ async function main() {
 
     await request(enginePort, "POST", "/proxy", { model: "claude-opus-5-5", max_tokens: 999999, messages: [{ role: "user", content: "hi" }] }, T);
     check("engine /proxy pins its own model and caps max_tokens at 16384", lastBody().model === "claude-sonnet-5-5" && lastBody().max_tokens === 16384, JSON.stringify(lastBody()));
+    await request(enginePort, "POST", "/proxy", { max_tokens: -5, messages: [{ role: "user", content: "hi" }] }, T);
+    check("engine /proxy replaces a negative max_tokens with the cap", lastBody().max_tokens === 16384, String(lastBody().max_tokens));
     r = await request(enginePort, "POST", "/answer", { question: "encryption ".repeat(1000) }, T);
     check("/answer rejects an oversized question", r.status === 400, String(r.status));
     r = await request(enginePort, "POST", "/search", { query: "encryption ".repeat(1000) }, T);
@@ -275,6 +277,18 @@ async function main() {
           ANTHROPIC_API_KEY: "sk-test", COUNTERSIGN_TOKEN: TOKEN,
         }, phpPort));
         await proxyChecks("proxy.php", phpPort, "/proxy.php");
+        const msg = { messages: [{ role: "user", content: "hi" }] };
+        const noTokenPort = await freePort(), allowPort = await freePort();
+        children.push(await startProcess("php", ["-S", `127.0.0.1:${noTokenPort}`, "-t", WORK], {
+          ANTHROPIC_API_KEY: "sk-test", COUNTERSIGN_TOKEN: "", ALLOW_NO_TOKEN: "",
+        }, noTokenPort));
+        let r = await request(noTokenPort, "POST", "/proxy.php", msg);
+        check("proxy.php without a team token refuses to forward", r.status === 500 && /COUNTERSIGN_TOKEN/.test(r.text), `${r.status} ${r.text}`);
+        children.push(await startProcess("php", ["-S", `127.0.0.1:${allowPort}`, "-t", WORK], {
+          ANTHROPIC_API_KEY: "sk-test", COUNTERSIGN_TOKEN: "", ALLOW_NO_TOKEN: "1",
+        }, allowPort));
+        r = await request(allowPort, "POST", "/proxy.php", msg);
+        check("ALLOW_NO_TOKEN=1 lets proxy.php forward without a token", r.status === 200, `${r.status} ${r.text}`);
       }
     }
   } finally {
@@ -356,6 +370,8 @@ async function main() {
     await request(port, "POST", urlPath, { model: "claude-opus-5-5", max_tokens: 999999, temperature: 2, messages: [{ role: "user", content: "hi" }] }, T);
     check(`${name} replaces an unlisted model with claude-sonnet-5-5`, lastBody().model === "claude-sonnet-5-5", lastBody().model);
     check(`${name} caps max_tokens at 16384`, lastBody().max_tokens === 16384, String(lastBody().max_tokens));
+    await request(port, "POST", urlPath, { max_tokens: -5, messages: [{ role: "user", content: "hi" }] }, T);
+    check(`${name} replaces a negative max_tokens with the cap`, lastBody().max_tokens === 16384, String(lastBody().max_tokens));
     check(`${name} forwards only model, max_tokens, messages and system`, Object.keys(lastBody()).every((k) => ["model", "max_tokens", "messages", "system"].includes(k)), JSON.stringify(Object.keys(lastBody())));
     r = await request(port, "POST", urlPath, { messages: [{ role: "user", content: "hi" }] }, { "X-Team-Token": TOKEN + "x" });
     check(`${name} rejects a team token of the wrong length`, r.status === 401, String(r.status));

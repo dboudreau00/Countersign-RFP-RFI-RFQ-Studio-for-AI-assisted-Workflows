@@ -9,14 +9,19 @@
  * Setup:
  *   1. Set the key: EITHER export ANTHROPIC_API_KEY in your hosting panel,
  *      OR paste it into $API_KEY below (then keep this file out of git!).
- *   2. (Recommended) Set $TEAM_TOKEN to a shared passphrase; team members enter it
- *      in the app's AI settings so random visitors can't spend your credits.
+ *   2. Set $TEAM_TOKEN (or COUNTERSIGN_TOKEN) to a shared passphrase; team members enter
+ *      it in the app's AI settings so random visitors can't spend your credits. Without
+ *      one the proxy refuses every request unless ALLOW_NO_TOKEN=1 is set, because a
+ *      file in public_html is reachable by anyone who finds the URL.
  *   3. In the app: AI settings -> "Team server proxy", URL: proxy.php
  */
 
 // ---------------- configuration ----------------
 $API_KEY        = getenv('ANTHROPIC_API_KEY') ?: 'sk-ant-REPLACE_ME';
-$TEAM_TOKEN     = getenv('COUNTERSIGN_TOKEN') ?: '';       // '' = disabled (not recommended on public URLs)
+$TEAM_TOKEN     = getenv('COUNTERSIGN_TOKEN') ?: '';       // '' = no token: requests are refused unless $ALLOW_NO_TOKEN
+// Serve without a team token. Anyone who can reach this URL can then spend your API key,
+// so only for a directory that is already access-controlled (.htaccess, VPN, intranet).
+$ALLOW_NO_TOKEN = getenv('ALLOW_NO_TOKEN') === '1';
 $ALLOWED_MODELS = ['claude-sonnet-5-5', 'claude-sonnet-4-6', 'claude-haiku-4-5', 'claude-haiku-4-5-20251001'];
 $DEFAULT_MODEL  = 'claude-sonnet-5-5';
 // Hard ceiling regardless of what the client asks for. Must stay above what the app
@@ -54,9 +59,13 @@ function fail(int $code, string $msg): void {
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') fail(405, 'POST only');
 if (strpos($API_KEY, 'REPLACE_ME') !== false) fail(500, 'Server not configured: set ANTHROPIC_API_KEY');
 
+if ($TEAM_TOKEN === '' && !$ALLOW_NO_TOKEN)
+    fail(500, 'Server not configured: set COUNTERSIGN_TOKEN (or ALLOW_NO_TOKEN=1 behind your own access control)');
 if ($TEAM_TOKEN !== '') {
-    $sent = $_SERVER['HTTP_X_TEAM_TOKEN'] ?? '';
-    if (!hash_equals($TEAM_TOKEN, $sent)) fail(401, 'Missing or wrong team token');
+    $sent = (string)($_SERVER['HTTP_X_TEAM_TOKEN'] ?? '');
+    // hash_equals() returns early when the lengths differ; hashing both sides first makes
+    // the compare constant-time in the token's length too, as proxy.js and engine.js do.
+    if (!hash_equals(hash('sha256', $TEAM_TOKEN), hash('sha256', $sent))) fail(401, 'Missing or wrong team token');
 }
 // A cross-site page can POST text/plain without a CORS preflight; requiring JSON forces one.
 if (stripos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== 0)

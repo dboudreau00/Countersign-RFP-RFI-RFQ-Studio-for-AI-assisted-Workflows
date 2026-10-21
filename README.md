@@ -116,8 +116,11 @@ Requires PHP 7.1+ with the curl extension (standard on virtually all shared host
 2. Give it the key, either:
    - set `ANTHROPIC_API_KEY` as an environment variable in your hosting panel, **or**
    - edit the `$API_KEY` line at the top of the file.
-3. Strongly recommended: set a team passphrase via the `COUNTERSIGN_TOKEN`
-   env var or the `$TEAM_TOKEN` line.
+3. Set a team passphrase via the `COUNTERSIGN_TOKEN` env var or the `$TEAM_TOKEN`
+   line. Without one, `proxy.php` refuses every request with a `500`, because a file
+   in `public_html` can be reached by anyone who finds the URL. `ALLOW_NO_TOKEN=1`
+   overrides that, only for a directory that already has its own access control
+   (`.htaccess`, VPN, intranet).
 4. In the app: **⚙ AI settings → Team server proxy**, URL: `proxy.php`,
    team token: your passphrase. Save.
 
@@ -213,6 +216,7 @@ so the message itself usually names the fix.
 |---|---|
 | `Proxy (check the team token) 401: …` | Token in AI settings doesn't match the server's `COUNTERSIGN_TOKEN`. |
 | `Proxy 500: Server not configured: set ANTHROPIC_API_KEY` | The key isn't set on the server. |
+| `Proxy 500: Server not configured: set COUNTERSIGN_TOKEN …` | `proxy.php` has no team token. Set `COUNTERSIGN_TOKEN` (or the `$TEAM_TOKEN` line) and enter it in AI settings, or set `ALLOW_NO_TOKEN=1` if the directory is already access-controlled. |
 | `Claude API (check your API key) 401: …` | Bad/expired key in "Claude (your API key)" mode. |
 | "Claude declined this request (…)" | The model's safety classifier refused that question (the category is in brackets). Reword the question, or set another model such as `claude-sonnet-4-6` in AI settings. The question is marked **Failed**, never saved as an empty answer. |
 | `Gemini API (unknown model "…") 404: …` | The model name in AI settings no longer exists. Clear the field to use the current default, or set a model from `GET https://generativelanguage.googleapis.com/v1beta/models`. |

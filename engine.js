@@ -644,7 +644,8 @@ const routes = {
       model: MODEL,
       // Cap must stay above the app's largest request ("Extract questions" returns a
       // JSON array of up to 40 items); 1024 truncated that JSON mid-array.
-      max_tokens: Math.min(parseInt(body.max_tokens, 10) || PROXY_MAX_TOKENS, PROXY_MAX_TOKENS),
+      // a missing, zero, negative or non-numeric max_tokens falls back to the cap (the API rejects < 1)
+      max_tokens: Math.min(Math.max(parseInt(body.max_tokens, 10) || 0, 0) || PROXY_MAX_TOKENS, PROXY_MAX_TOKENS),
       messages: body.messages,
       ...(typeof body.system === "string" ? { system: body.system } : {}),
     });

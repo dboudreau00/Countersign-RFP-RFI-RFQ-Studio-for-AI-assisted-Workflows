@@ -127,7 +127,8 @@ const server = http.createServer((req, res) => {
 
     const payload = {
       model: ALLOWED_MODELS.includes(body.model) ? body.model : DEFAULT_MODEL,
-      max_tokens: Math.min(parseInt(body.max_tokens, 10) || MAX_TOKENS_CAP, MAX_TOKENS_CAP),
+      // a missing, zero, negative or non-numeric max_tokens falls back to the cap (the API rejects < 1)
+      max_tokens: Math.min(Math.max(parseInt(body.max_tokens, 10) || 0, 0) || MAX_TOKENS_CAP, MAX_TOKENS_CAP),
       messages: body.messages,
     };
     if (typeof body.system === "string") payload.system = body.system;

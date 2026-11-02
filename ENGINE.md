@@ -50,9 +50,9 @@ still reads `/srv/countersign/kb`. Set them explicitly if you want otherwise.
 
 Three ways, freely combined; everything is indexed together at boot:
 
-1. **Web-app export (recommended for PDFs/DOCX/XLSX).** Build the bucket in the
-   Countersign app (it parses binary formats in the browser), then
-   *Export workspace file* and place `countersign-data.json` next to `engine.js`.
+1. **Web-app export (recommended for PDFs/DOCX/XLSX).** Build the knowledge base in
+   the Countersign app (it parses binary formats in the browser), then
+   *Settings → Workspace file → Export* and place `countersign-data.json` next to `engine.js`.
 2. **`kb/` directory.** Drop plain `.txt`, `.md`, `.csv`, or `.json` files in it.
 3. **`POST /ingest` at runtime.** Pushed documents are persisted into `kb/`
    so they survive restarts.
@@ -204,14 +204,14 @@ changed or shortened gets a short hash of the original, so two different names c
 never overwrite each other: `SLA Policy (v2).pdf` is stored as
 `SLA Policy _v2_.pdf~e58ca679.txt`. Engines before this scheme stored that name as
 `SLA Policy _v2_.pdf.txt`; pushing the document again replaces the old file, so after
-upgrading, push the bucket once. When scanning `kb/` at boot the engine skips `README.txt` and
+upgrading, push the knowledge base once. When scanning `kb/` at boot the engine skips `README.txt` and
 `countersign-data.json` (the latter is only read via `DATA_FILE`, never as raw
 text), so a document whose name would canonicalise onto one of those is stored
 with a leading underscore (`_README.txt`) instead of overwriting it.
 
 Pushing a document replaces any copy loaded under its original name, whether it
 came from `DATA_FILE` or from a `kb/` file whose name was not canonical, so the web
-app's **Push bucket to engine** never indexes a document twice. At boot a `kb/` file
+app's **Push sources** (Settings → Answer engine) never indexes a document twice. At boot a `kb/` file
 likewise supersedes the `DATA_FILE` document it was pushed from.
 
 `/ingest` response:

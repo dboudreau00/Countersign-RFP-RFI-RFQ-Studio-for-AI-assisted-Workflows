@@ -1,6 +1,6 @@
 # Browser end-to-end suite
 
-Drives the real `index.html` in headless Chromium with Playwright: 91 tests and 722 checks
+Drives the real `index.html` in headless Chromium with Playwright: 95 tests and 767 checks
 covering page load, all six bucket formats, RFP intake (PDF, DOCX, XLSX with a title
 block, CSV, pasted text), every provider, retries and errors, all four exports read back
 with real libraries, the round trip into the issuer's workbook, persistence and two tabs
@@ -52,3 +52,7 @@ never touched.
 - `scripts/live-app-gemini.js <dir>` runs the page's own extraction, retrieval and answer
   code against the live Gemini API. It needs `GEMINI_API_KEY`; `GEMINI_MODEL` is optional.
 - `scripts/dashes.js <file>` lists em and en dashes outside code comments.
+- `scripts/screenshots.js [--out <dir>]` rebuilds the README screenshots in
+  `docs/screenshots/` from the real page: a made-up vendor's knowledge base, the issuer's
+  questionnaire loaded as a real spreadsheet, eight answers drafted with a mocked model and
+  three approved.

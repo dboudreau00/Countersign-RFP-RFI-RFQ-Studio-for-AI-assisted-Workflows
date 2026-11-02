@@ -1,14 +1,25 @@
 # Countersign: RFP Response Studio
 
-<img width="1451" height="1023" alt="Screenshot 2026-07-22 142928" src="https://github.com/user-attachments/assets/07cb55a9-7a7b-431f-8414-5b435c20c591" />
+![Countersign's Responses page: the question list with review status and coverage on the left, the selected answer with its cited sources on the right](docs/screenshots/responses.png)
 
+A single-file web app that automates SaaS RFP responses: parse a knowledge base
+(up to 500 sources), extract every question from an RFP (PDF, DOCX, XLSX, CSV or
+pasted text), generate grounded answers with per-question citations and coverage
+scoring, then export to DOCX, XLSX, CSV, or write the answers back into the
+issuer's original spreadsheet.
 
+<p>
+  <img src="docs/screenshots/knowledge-base.png" width="49%" alt="Knowledge base: the sources table with type, chunks, size and the date each was added">
+  <img src="docs/screenshots/export.png" width="49%" alt="Export: approval progress, the four formats and the export options">
+</p>
+<p>
+  <img src="docs/screenshots/responses-dark.png" width="79%" alt="The Responses page in dark mode">
+  <img src="docs/screenshots/settings.png" width="19%" alt="Settings: AI provider, answer tone and length, answer engine, workspace file and storage">
+</p>
 
-A single-file web app that automates SaaS RFP responses: parse a documentation
-bucket (up to 500 sources), extract every question from an RFP (PDF, DOCX, XLSX,
-CSV or pasted text), generate grounded answers with per-question citations and
-coverage scoring, then export to DOCX, XLSX, CSV, or round-trip answers back
-into the issuer's original spreadsheet.
+The screenshots show a made-up vendor and RFP. `node e2e/scripts/screenshots.js` rebuilds
+them from the real page, using the Playwright install described in
+[`e2e/README.md`](e2e/README.md).
 
 ## Measured, not assumed
 
@@ -37,7 +48,7 @@ node eval/run.js
 
 Details, metric definitions and how to add cases: [`eval/README.md`](eval/README.md).
 
-The web app has its own browser suite in [`e2e/`](e2e/): 722 checks that drive the real
+The web app has its own browser suite in [`e2e/`](e2e/): 767 checks that drive the real
 page in headless Chromium, with every LLM endpoint mocked. It needs Playwright, installed
 into that folder only; see [`e2e/README.md`](e2e/README.md).
 
@@ -63,13 +74,16 @@ into that folder only; see [`e2e/README.md`](e2e/README.md).
 2. Open it in a browser. Work persists in each visitor's browser storage (localStorage).
    Two tabs of the same copy stay in step: each picks up the other's changes, and
    a save merges rather than overwrites.
-3. Each user opens **⚙ AI settings** and picks a provider:
-   - **Claude (your Anthropic API key)**: paste a key from console.anthropic.com
+3. Each user opens **Settings** at the foot of the sidebar and picks a provider. Changes
+   apply as you make them.
+   - **Claude API**: paste a key from console.anthropic.com
      (defaults to `claude-sonnet-5-5`; type `claude-sonnet-4-6` in the Model field
      to keep the previous default)
-   - **Google Gemini**: paste a Gemini key (defaults to `gemini-flash-latest`)
-   - **OpenAI-compatible / Copilot endpoint**: base URL + key
-4. Optional: toggle **◐ Dark mode** in the sidebar (follows OS preference by default).
+   - **Gemini**: paste a Gemini key (defaults to `gemini-flash-latest`)
+   - **OpenAI-compatible**: base URL + key, for OpenAI or a Copilot endpoint
+   - **Claude** needs no key, but only inside Claude.ai
+4. Optional: the moon icon beside Settings switches to dark mode (it follows the OS
+   preference by default).
 
 > Keys entered this way live only in that browser session's memory and are sent
 > only to the provider. They are never persisted or embedded in the page, which
@@ -81,25 +95,25 @@ into that folder only; see [`e2e/README.md`](e2e/README.md).
 
 ## Shipping a shared knowledge base (the directory file)
 
-1. In the app, build your documentation bucket (page 1), then click
-   **↓ Export workspace file**. This downloads `countersign-data.json`
-   (bucket + question ledger + settings, never API keys).
+1. In the app, build your knowledge base, then open **Settings → Workspace file →
+   Export**. This downloads `countersign-data.json` (knowledge base, questions and
+   settings, never API keys).
 2. Upload `countersign-data.json` to the **same directory** as the HTML file.
 3. A visitor with **no saved work** auto-loads it on first open, so the whole team
-   starts from the same source bucket. Anyone with existing local work is not
-   overwritten: they pull it manually with **⟳ Load from site directory**, which
+   starts from the same knowledge base. Anyone with existing local work is not
+   overwritten: they pull it manually with **Settings → Workspace file → Load from site**, which
    asks for confirmation first because importing replaces the whole workspace.
 
-> A workspace file imported with **Import workspace file** only carries documents,
+> A workspace file imported with **Settings → Workspace file → Import** only carries documents,
 > questions and answer-length targets. The team proxy or engine URL and the model are
 > taken only from the `countersign-data.json` next to the page, so a file received from
 > someone else cannot redirect your key or your prompts to another server.
 
-> The auto-load runs only when browser storage is empty. Once someone has a bucket
-> or a ledger saved locally, re-uploading the file does **not** reach them until
-> they press **⟳ Load from site directory**.
+> The auto-load runs only when browser storage is empty. Once someone has sources
+> or questions saved locally, re-uploading the file does **not** reach them until
+> they press **Load from site**.
 
-Update the shared bucket any time by re-exporting and re-uploading the JSON.
+Update the shared knowledge base any time by re-exporting and re-uploading the JSON.
 
 ## Team proxy: one API key for everyone (recommended)
 
@@ -121,8 +135,8 @@ Requires PHP 7.1+ with the curl extension (standard on virtually all shared host
    in `public_html` can be reached by anyone who finds the URL. `ALLOW_NO_TOKEN=1`
    overrides that, only for a directory that already has its own access control
    (`.htaccess`, VPN, intranet).
-4. In the app: **⚙ AI settings → Team server proxy**, URL: `proxy.php`,
-   team token: your passphrase. Save.
+4. In the app: **Settings → Team proxy**, Proxy URL: `proxy.php`,
+   team token: your passphrase.
 
 Because the proxy sits in the same directory as the page, there is no CORS to
 configure and the relative URL `proxy.php` just works.
@@ -142,7 +156,7 @@ node proxy.js
 below needs. To accept connections from other machines directly, add `HOST=0.0.0.0`;
 with any non-loopback `HOST` it refuses to start unless `COUNTERSIGN_TOKEN` is set
 (`ALLOW_NO_TOKEN=1` overrides that, for a trusted network only). Then in the app:
-**Team server proxy**, URL: the reverse proxy's address, or `http://yourhost:8787/proxy`
+**Team proxy**, Proxy URL: the reverse proxy's address, or `http://yourhost:8787/proxy`
 when it listens on `0.0.0.0`.
 
 > **`proxy.js` speaks plain HTTP. It has no TLS of its own.** For anything other
@@ -196,13 +210,13 @@ when it listens on `0.0.0.0`.
 - **Serve over HTTPS.** The team token and all RFP content travel in requests.
   `proxy.js` and `engine.js` speak plain HTTP, so terminate TLS in front of them.
 - **Treat `countersign-data.json` as trusted input.** The app loads it into the
-  bucket and ledger; only publish files you produced yourself with
-  **↓ Export workspace file**.
+  knowledge base and question list; only publish files you produced yourself with
+  **Settings → Workspace file → Export**.
 - **Rate limiting is on you.** These are sketch-grade proxies: they cap request
   size and tokens but do not throttle request *frequency*. On Apache, `mod_ratelimit`
   or fail2ban helps; on Node, put nginx `limit_req` in front for real traffic.
 - The `countersign-data.json` directory file is **publicly readable** wherever
-  you host it. Don't put anything in the bucket you wouldn't hand to whoever can
+  you host it. Don't put anything in the knowledge base you wouldn't hand to whoever can
   reach that URL; password-protect the directory if the docs are sensitive.
 - Rotate the API key if you ever suspect the proxy was abused; usage is visible
   in the Anthropic console.
@@ -214,22 +228,22 @@ so the message itself usually names the fix.
 
 | Symptom | Likely cause / fix |
 |---|---|
-| `Proxy (check the team token) 401: …` | Token in AI settings doesn't match the server's `COUNTERSIGN_TOKEN`. |
+| `Proxy (check the team token) 401: …` | Token in Settings doesn't match the server's `COUNTERSIGN_TOKEN`. |
 | `Proxy 500: Server not configured: set ANTHROPIC_API_KEY` | The key isn't set on the server. |
-| `Proxy 500: Server not configured: set COUNTERSIGN_TOKEN …` | `proxy.php` has no team token. Set `COUNTERSIGN_TOKEN` (or the `$TEAM_TOKEN` line) and enter it in AI settings, or set `ALLOW_NO_TOKEN=1` if the directory is already access-controlled. |
-| `Claude API (check your API key) 401: …` | Bad/expired key in "Claude (your API key)" mode. |
-| "Claude declined this request (…)" | The model's safety classifier refused that question (the category is in brackets). Reword the question, or set another model such as `claude-sonnet-4-6` in AI settings. The question is marked **Failed**, never saved as an empty answer. |
-| `Gemini API (unknown model "…") 404: …` | The model name in AI settings no longer exists. Clear the field to use the current default, or set a model from `GET https://generativelanguage.googleapis.com/v1beta/models`. |
-| `Gemini API 503: This model is currently experiencing high demand` | Google is shedding load on that model. The app already retried once. Wait and retry, or set the Model field in AI settings to `gemini-flash-lite-latest`, which has separate capacity. |
+| `Proxy 500: Server not configured: set COUNTERSIGN_TOKEN …` | `proxy.php` has no team token. Set `COUNTERSIGN_TOKEN` (or the `$TEAM_TOKEN` line) and enter it in Settings, or set `ALLOW_NO_TOKEN=1` if the directory is already access-controlled. |
+| `Claude API (check your API key) 401: …` | Bad/expired key with the **Claude API** provider. |
+| "Claude declined this request (…)" | The model's safety classifier refused that question (the category is in brackets). Reword the question, or set another model such as `claude-sonnet-4-6` in Settings. The question is marked **Failed**, never saved as an empty answer. |
+| `Gemini API (unknown model "…") 404: …` | The model name in Settings no longer exists. Clear the field to use the current default, or set a model from `GET https://generativelanguage.googleapis.com/v1beta/models`. |
+| `Gemini API 503: This model is currently experiencing high demand` | Google is shedding load on that model. The app already retried once. Wait and retry, or set the Model field in Settings to `gemini-flash-lite-latest`, which has separate capacity. |
 | `Gemini API 429: You exceeded your current quota` | Free-tier rate limit. Wait, switch model, or enable billing. The app already retries once automatically. |
-| `Engine 401 / 404 / 500: …` | Countersign Engine provider: check the URL, the team token, and that `engine.js` is running (**⟲ Check engine** on page 1 reports its status). |
+| `Engine 401 / 404 / 500: …` | Countersign Engine provider: check the URL, the team token, and that `engine.js` is running (**Settings → Answer engine → Check connection** reports its status). |
 | "2 questions can't go to the engine (…)" | The engine takes questions of 3 to 4000 characters, and one outside that range would reject the whole batch. Those rows are marked **Failed** and the rest are sent. Shorten or split the long ones, delete the stray short ones, and generate again. |
-| "The engine stream ended early" | The `/batch` connection dropped mid-stream. Unanswered rows are stamped **Failed**. Regenerate those individually. |
-| Requests fail only when self-hosted with the *built-in* Claude provider | The keyless built-in provider only works inside Claude.ai. Self-hosted deployments must use "Claude (your API key)", the team proxy, or the engine. |
+| "The engine stream ended early" | The `/batch` connection dropped mid-stream. Unanswered questions are marked **Failed**. Draft those again one at a time. |
+| Requests fail only when self-hosted with the **Claude** provider | The keyless **Claude** provider only works inside Claude.ai. Self-hosted deployments must use **Claude API**, the team proxy, or the engine. |
 | `Failed to fetch` hitting the Node proxy from a page on another origin | Set `ALLOW_ORIGIN` to your site's origin, or reverse-proxy onto the same domain. |
-| `Engine 403: Requests from web pages need COUNTERSIGN_TOKEN or ALLOW_ORIGIN` (or `Proxy 403`) | The server has no team token and no `ALLOW_ORIGIN`, so it refuses browser requests from other origins. Set `COUNTERSIGN_TOKEN` (and enter it in AI settings) or set `ALLOW_ORIGIN` to the page's origin (`null` for a page opened from a file). |
-| Team token is empty after a page reload | Keys and tokens are held in memory for the session only and are never persisted. Re-enter it in **⚙ AI settings** after a reload. |
-| Browser storage quota errors with a huge bucket | localStorage is about 5 to 10 MB in most browsers, and a save briefly needs room for the old and the new copy of the bucket, so a bucket above roughly half the quota stops saving (removing a few documents does not help until it is back under that). Keep the master bucket in `countersign-data.json` and pull it with **⟳ Load from site directory** rather than relying on local persistence. |
+| `Engine 403: Requests from web pages need COUNTERSIGN_TOKEN or ALLOW_ORIGIN` (or `Proxy 403`) | The server has no team token and no `ALLOW_ORIGIN`, so it refuses browser requests from other origins. Set `COUNTERSIGN_TOKEN` (and enter it in Settings) or set `ALLOW_ORIGIN` to the page's origin (`null` for a page opened from a file). |
+| Team token is empty after a page reload | Keys and tokens are held in memory for the session only and are never persisted. Re-enter it in **Settings** after a reload. |
+| Browser storage quota errors with a huge knowledge base | localStorage is about 5 to 10 MB in most browsers, and a save briefly needs room for the old and the new copy of the knowledge base, so one above roughly half the quota stops saving (removing a few documents does not help until it is back under that). Keep the master copy in `countersign-data.json` and pull it with **Load from site** rather than relying on local persistence. |
 | `413 Request too large` from the proxy | A single question pulled a very large context. Raise `MAX_BODY_BYTES` in the proxy if you've raised the app's retrieval budget. |
 | "Some libraries didn't load" on open, or "The PDF library didn't load" when adding a PDF | A CDN is blocked. The parsers come from `cdnjs.cloudflare.com` (mammoth), `cdn.jsdelivr.net` (pdf.js, docx) and `cdn.sheetjs.com` (SheetJS), each pinned by an integrity hash, so a proxy that rewrites them also blocks them. The app still runs; the affected formats are unavailable until the CDN is reachable. |
 
@@ -240,14 +254,14 @@ public_html/
 └── rfp/
     ├── index.html              <- the app
     ├── proxy.php               <- holds the API key server-side
-    └── countersign-data.json   <- shared team bucket (exported from the app)
+    └── countersign-data.json   <- shared team knowledge base (exported from the app)
 ```
 
 That's the whole stack: one page, one proxy, one data file.
 
 ## Known limits
 
-- **Round-trip export rewrites the issuer's workbook through SheetJS.** Cell values,
+- **Write back into original rewrites the issuer's workbook through SheetJS.** Cell values,
   formulas, comments, merged cells, column widths and every other tab survive. Fonts,
   fills, borders, conditional formatting, data-validation dropdowns, freeze panes, tab
   colours, images and charts do not. Answers go into empty cells, and the app asks before
@@ -257,14 +271,14 @@ That's the whole stack: one page, one proxy, one data file.
   exact template back, paste the answers into their file from the XLSX export instead.
 - **Retrieval is lexical**, not semantic. A question worded with entirely different
   vocabulary than your documentation can score as a gap even when the material is there
-  (the gap report lists the specific terms it could not find, so this is visible). It is
+  (a gap lists the specific terms it could not find, so this is visible). It is
   tuned to over-flag rather than miss: reviewing a false gap costs a minute, shipping an
   unsubstantiated answer costs the bid.
 - **Each document is indexed up to 220,000 characters**, about 35,000 words.
   The app says so when a file is cut, and the engine logs it, so split a longer
   document into parts to search all of it.
 - **Question extraction depends on the model.** It asks for at most 40 items and merges
-  duplicates, so a very long RFP may come back consolidated. Check the ledger against the
+  duplicates, so a very long RFP may come back consolidated. Check the question list against the
   source document before generating; the app warns when a reply was cut off mid-list.
 
 ## Going further: the answer engine
@@ -274,16 +288,16 @@ loads your knowledge base server-side (from `countersign-data.json` and/or a
 `kb/` folder) and exposes `POST /answer`: question in, documentation-grounded
 answer with sources and a coverage score out. Use it to wire RFP answering into
 anything beyond the web app: portals, bots, scripts. Its `/proxy` endpoint
-works with the app's Team server proxy setting at the exact path `/proxy`, so one
+works with the app's Team proxy setting at the exact path `/proxy`, so one
 process serves both.
 
-The web app also has a native **Countersign Engine** provider (⚙ AI settings):
+The web app also has a native **Countersign Engine** provider (Settings):
 point it at the engine's URL and generation switches to server-side retrieval.
-"Generate all answers" streams the RFP back into the ledger live through `/batch`
-(sent in consecutive batches of 100, the engine's per-call limit), the gap report
-scores questions against the *server's* knowledge base via `/search`, and page 1
-gains "Check engine" / "Push bucket to engine" buttons to sync your local
-documents up with one click.
+"Draft remaining" streams the RFP back into the question list live through `/batch`
+(sent in consecutive batches of 100, the engine's per-call limit), "Check coverage"
+scores questions against the *server's* knowledge base via `/search`, and the
+Answer engine section of Settings has "Check connection" and "Push sources" to
+sync your local documents up with one click.
 
 ## Licence
 

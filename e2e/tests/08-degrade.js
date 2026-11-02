@@ -38,7 +38,7 @@ module.exports = (test) => {
     await app.page.click('#map-import');
     await app.waitLedger(4);
     await app.generateAll();
-    t.eq('answers still generate', (await app.ledger()).map((r) => r.stamp), ['Generated', 'Generated', 'Generated', 'Generated']);
+    t.eq('answers still generate', (await app.ledger()).map((r) => r.status), ['generated', 'generated', 'generated', 'generated']);
     await app.goPage('export');
     // DOCX needs the docx library: refuse with an explanation, no crash, no download
     await app.exportOptions({ fmt: 'docx' });
@@ -99,7 +99,7 @@ module.exports = (test) => {
     await app.goPage('workspace');
     await app.addQuestion('Do you encrypt data at rest?');
     await app.generateAll();
-    t.eq('manual questions still generate answers', (await app.ledger())[0].stamp, 'Generated');
+    t.eq('manual questions still generate answers', (await app.ledger())[0].status, 'generated');
     await app.goPage('export');
     await app.exportOptions({ fmt: 'csv' });
     t.eq('CSV export needs no library and works', parseCsv((await app.downloadExport()).buffer.toString('utf8')).length, 2);

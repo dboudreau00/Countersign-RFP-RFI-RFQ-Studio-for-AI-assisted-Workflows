@@ -25,7 +25,7 @@ module.exports = (test) => {
     }
     t.eq('two distinct toasts were displayed', seen.length, 2);
     if (seen.length === 2) {
-      t.match('the warning is shown first', seen[0].text, /bucket is empty/i);
+      t.match('the warning is shown first', seen[0].text, /knowledge base is empty/i);
       t.match('the success message follows it', seen[1].text, /draft answers generated|generated/i);
       t.check('the warning stays on screen long enough to read (>= 2s before the next one)', seen[1].at - seen[0].at >= 2000, `${seen[1].at - seen[0].at}ms between them`);
     }

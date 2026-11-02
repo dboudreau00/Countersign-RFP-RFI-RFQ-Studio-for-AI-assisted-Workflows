@@ -168,7 +168,7 @@ class App {
   async booted() {
     await this.page.waitForFunction(() => {
       const el = document.getElementById('doc-count');
-      return el && !/^\s*0 files\s*$/.test(el.textContent);
+      return el && /of \d+ sources/.test(el.textContent);
     }, null, { timeout: 6000 }).catch(() => {});
     await this.page.waitForTimeout(200);
   }
@@ -202,7 +202,7 @@ class App {
   async docRows() {
     return this.page.evaluate(() => [...document.querySelectorAll('#doc-list tbody tr')].map((tr) => {
       const c = tr.querySelectorAll('td');
-      return { name: c[0].textContent.trim(), type: c[1].textContent.trim(), size: c[2].textContent.trim(), chars: c[3].textContent.trim() };
+      return { name: tr.querySelector('.dn').textContent.trim(), type: c[1].textContent.trim(), chunks: c[2].textContent.trim(), size: c[3].textContent.trim(), added: c[4].textContent.trim() };
     }));
   }
   async waitDocs(n, timeout = 30000) {
@@ -213,10 +213,11 @@ class App {
   }
 
   /* ------------------------------------------------------------------ settings */
-  async configure({ provider, key, base, model, lengths } = {}) {
+  /* Settings apply as they are changed; closing the sheet is all that is left to do. */
+  async configure({ provider, key, base, model, lengths, tone } = {}) {
     const p = this.page;
-    await p.click('#open-settings');
-    if (provider) await p.selectOption('#set-provider', provider);
+    await this.openSettings();
+    if (provider) await p.check(`input[name="provider"][value="${provider}"]`);
     const setIf = async (sel, val) => {
       if (val === undefined) return;
       if (await p.isVisible(sel)) await p.fill(sel, val);
@@ -226,16 +227,25 @@ class App {
     await setIf('#set-base', base);
     await setIf('#set-model', model);
     for (const [k, v] of Object.entries(lengths || {})) await p.selectOption('#len-' + k, String(v));
-    await p.click('#settings-save');
-    await p.waitForFunction(() => !document.getElementById('settings-modal').classList.contains('show'));
+    if (tone !== undefined) await p.selectOption('#tone-select', { index: tone });
+    await this.closeSettings();
   }
+  async openSettings() {
+    await this.page.click('#open-settings');
+    await this.page.waitForFunction(() => document.getElementById('settings-modal').classList.contains('show'));
+  }
+  async closeSettings() {
+    await this.page.click('#settings-close');
+    await this.page.waitForFunction(() => !document.getElementById('settings-modal').classList.contains('show'));
+  }
+  provider() { return this.page.$eval('input[name="provider"]:checked', (r) => r.value).catch(() => null); }
 
   /* ------------------------------------------------------------------ workspace */
   workspaceJson({ docs = [], questions = [], settings } = {}) {
     return { app: 'countersign', version: 2, appVersion: 'e2e', exportedAt: new Date().toISOString(), docs, questions, ...(settings ? { settings } : {}) };
   }
   async hasWork() {
-    return this.page.evaluate(() => document.querySelectorAll('#doc-list tbody tr').length + document.querySelectorAll('#ledger .q-row').length > 0);
+    return this.page.evaluate(() => document.querySelectorAll('#doc-list tbody tr').length + +document.querySelector('[data-filter="all"] .n').textContent > 0);
   }
   /* The app only asks "replace your workspace?" when there is work to replace, so a reply is
      queued only in that case (an unused reply would be eaten by the next, unrelated dialog).
@@ -250,49 +260,83 @@ class App {
     await this.importWorkspace(this.workspaceJson({ docs, questions, settings }));
     await this.page.waitForFunction(([nd, nq]) => {
       const dn = document.querySelectorAll('#doc-list tbody tr').length;
-      const q = document.querySelectorAll('#ledger .q-row').length;
+      const q = +document.querySelector('[data-filter="all"] .n').textContent;
       return dn === nd && q === nq;
     }, [docs.length, questions.length], { timeout: 15000 });
     await this.page.waitForTimeout(500);   // let the debounced persist land
   }
 
   /* ------------------------------------------------------------------ ledger */
-  async ledger() {
-    return this.page.evaluate(() => [...document.querySelectorAll('#ledger .q-row')].map((r) => {
-      const qt = r.querySelector('.q-text');
-      const ta = r.querySelector('textarea[data-ans]');
-      const cov = r.querySelector('.coverage span');
-      return {
-        id: r.dataset.id,
-        ref: (r.querySelector('.clause') || {}).textContent,
-        text: qt && qt.childNodes[0] ? qt.childNodes[0].textContent.trim() : '',
-        type: (r.querySelector('.qtype') || {}).textContent || '',
-        stamp: (r.querySelector('.stamp') || {}).textContent || '',
-        cov: cov ? cov.textContent : null,
-        covPct: cov ? parseInt(cov.textContent, 10) : null,
-        answer: ta ? ta.value : '',
-        src: (r.querySelector('.src-note') || {}).textContent || '',
-        open: r.classList.contains('open'),
-      };
+  /* Every question, in ledger order. The list gives ref, text, the visible status and
+     coverage; the answer panel gives the answer, type and citations, so each row is opened
+     in turn (in the page, in one go) and the original selection is put back afterwards.
+     `status` is the stored status the row carries (draft, working, generated, approved,
+     error); `stamp` is what the list shows (To draft, Needs review, Gap, ...). */
+  async ledger(page = this.page) {
+    return page.evaluate(() => {
+      const all = document.querySelector('[data-filter="all"]');
+      if (all.getAttribute('aria-selected') !== 'true') all.click();
+      const items = () => [...document.querySelectorAll('#ledger [data-qid]')];
+      const cur = items().find((b) => b.getAttribute('aria-current') === 'true');
+      const rows = items().map((b) => {
+        const cov = b.querySelector('.q-cov');
+        return {
+          id: b.dataset.qid, ref: b.querySelector('.q-num').textContent, text: b.querySelector('.q-text').textContent,
+          status: b.dataset.status, stamp: b.querySelector('.q-stamp').textContent,
+          cov: cov ? cov.textContent : null, covPct: cov ? parseInt(cov.textContent, 10) : null,
+        };
+      });
+      for (const r of rows) {
+        items().find((b) => b.dataset.qid === r.id).click();
+        const p = document.getElementById('answer-panel');
+        const ta = p.querySelector('textarea[data-ans]');
+        const sel = p.querySelector('select[data-type]');
+        const meter = p.querySelector('.cov');
+        r.answer = ta ? ta.value : '';
+        r.type = sel ? sel.selectedOptions[0].textContent : '';
+        r.src = [...p.querySelectorAll('[data-src]')].map((x) => x.textContent).join(', ');
+        r.quotes = [...p.querySelectorAll('.cite-quote')].map((x) => x.textContent);
+        r.tone = meter ? meter.className : '';
+      }
+      if (cur) { const b = items().find((x) => x.dataset.qid === cur.dataset.qid); if (b) b.click(); }
+      return rows;
+    });
+  }
+  questionCount() { return this.page.evaluate(() => +document.querySelector('[data-filter="all"] .n').textContent); }
+  async waitLedger(n, timeout = 15000) {
+    await this.page.waitForFunction((n) => +document.querySelector('[data-filter="all"] .n').textContent === n, n, { timeout });
+  }
+  async filter(name) { await this.page.click(`[data-filter="${name}"]`); }
+  /* Opens question i (of the whole ledger) in the answer panel and returns the panel. */
+  async openRow(i, page = this.page) {
+    if (await page.isVisible('#close-intake')) await page.click('#close-intake');
+    if ((await page.getAttribute('[data-filter="all"]', 'aria-selected')) !== 'true') await page.click('[data-filter="all"]');
+    await page.locator('#ledger [data-qid]').nth(i).click();
+    return page.locator('#answer-panel');
+  }
+  /* Refs listed under the Gaps filter, and the suggested topics shown above them. */
+  async gaps() {
+    await this.filter('gap');
+    return this.page.evaluate(() => ({
+      refs: [...document.querySelectorAll('#ledger [data-qid] .q-num')].map((x) => x.textContent.trim()),
+      topics: [...document.querySelectorAll('#gap-list .gap-kw')].map((x) => x.textContent.trim()),
     }));
   }
-  async waitLedger(n, timeout = 15000) {
-    await this.page.waitForFunction((n) => document.querySelectorAll('#ledger .q-row').length === n, n, { timeout });
-  }
-  async openRow(i) {
-    const row = this.page.locator('#ledger .q-row').nth(i);
-    if (!(await row.evaluate((r) => r.classList.contains('open')))) await row.locator('.q-head').click();
-    return row;
+  /* The RFP intake is the Responses page while there are no questions; afterwards it opens
+     from "Add questions" in the header. */
+  async openIntake() {
+    if (!(await this.page.isVisible('#extract-btn'))) await this.page.click('#open-intake');
   }
   async addQuestion(text) {
-    const before = (await this.ledger()).length;
+    const before = await this.questionCount();
+    await this.openIntake();
     this.dialogQueue.push({ accept: true, text });
     await this.page.click('#add-q-btn');
     await this.waitLedger(before + 1);
   }
   /* Settled means no row is mid-generation and nothing is left for the debounced persist. */
   async settled(timeout = 40000) {
-    await this.page.waitForFunction(() => ![...document.querySelectorAll('#ledger .stamp')].some((s) => /working/i.test(s.textContent)),
+    await this.page.waitForFunction(() => document.getElementById('ledger').getAttribute('aria-busy') !== 'true',
       null, { timeout, polling: 100 });
     await this.page.waitForTimeout(250);
   }
@@ -301,20 +345,21 @@ class App {
     await this.settled();
   }
   async generateRow(i) {
-    const row = await this.openRow(i);
-    await row.locator('[data-gen]').click();
+    const panel = await this.openRow(i);
+    await panel.locator('[data-gen]').click();
     await this.settled();
   }
-  async editAnswer(i, text) {
-    const row = await this.openRow(i);
-    const ta = row.locator('textarea[data-ans]');
+  async editAnswer(i, text, page = this.page) {
+    const panel = await this.openRow(i, page);
+    if (!(await panel.locator('textarea[data-ans]').count())) await panel.locator('[data-write]').click();
+    const ta = panel.locator('textarea[data-ans]');
     await ta.fill(text);
     await ta.blur();
-    await this.page.waitForTimeout(150);
+    await page.waitForTimeout(150);
   }
   async approve(i) {
-    const row = await this.openRow(i);
-    await row.locator('[data-approve]').click();
+    const panel = await this.openRow(i);
+    await panel.locator('[data-approve]').click();
   }
 
   /* ------------------------------------------------------------------ rfp intake */
@@ -327,6 +372,7 @@ class App {
     }, f.name, { timeout: 30000 });
   }
   async extract() {
+    await this.openIntake();
     await this.page.click('#extract-btn');
     await this.page.waitForFunction(() => {
       const b = document.getElementById('extract-btn');
@@ -352,8 +398,9 @@ class App {
   }
   async downloadExport() { return this.download(() => this.page.click('#download-btn')); }
   async exportWorkspace() {
-    await this.goPage('bucket');
+    await this.openSettings();
     const d = await this.download(() => this.page.click('#ws-export'));
+    await this.closeSettings();
     return { ...d, json: JSON.parse(d.buffer.toString('utf8')) };
   }
 

@@ -56,9 +56,9 @@ module.exports = (test) => {
     t.eq('hostile question text is displayed as literal text, not parsed as HTML', rows[0].text, P);
     t.eq('hostile ref is displayed as literal text', rows[0].ref, P);
     t.eq('hostile doc name is displayed as literal text', (await app.docRows())[0].name, P);
-    t.eq('a hostile status falls back to Draft', rows[0].stamp, 'Draft');
-    t.match('a hostile type falls back to a known type label', rows[0].type, /^(Compliance|Technical|Commercial|Narrative)\b.{0,6}\d+w$/);
-    t.check('length targets from the file are numeric in the labels', rows.every((r) => /~\d+w$/.test(r.type)), JSON.stringify(rows.map((r) => r.type)));
+    t.eq('a hostile status falls back to draft', rows[0].status, 'draft');
+    t.match('a hostile type falls back to a known type label', rows[0].type, /^(Compliance|Technical|Commercial|Narrative)\b.{0,6}\d+ words$/);
+    t.check('length targets from the file are numeric in the labels', rows.every((r) => /~\d+ words$/.test(r.type)), JSON.stringify(rows.map((r) => r.type)));
     // the delete control must still work when an id is hostile
     await app.page.click('#doc-list [data-del]');
     await app.waitDocs(1);
@@ -126,7 +126,7 @@ module.exports = (test) => {
     const app = await t.app();
     await app.goto();
     await app.page.click('#open-settings');
-    await app.page.selectOption('#set-provider', 'claude-key');
+    await app.page.check('input[name="provider"][value="claude-key"]');
     t.eq('API key input is type=password', await app.page.getAttribute('#set-key', 'type'), 'password');
     t.eq('autocomplete is off for the key field', await app.page.getAttribute('#set-key', 'autocomplete'), 'off');
     t.match('a warning about keys in public pages is shown', await app.page.textContent('#key-warning'), /session/i);

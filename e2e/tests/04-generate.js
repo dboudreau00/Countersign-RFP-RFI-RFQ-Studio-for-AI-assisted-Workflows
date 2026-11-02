@@ -39,7 +39,7 @@ module.exports = (test, cfg) => {
     checkAnthropicBody(t, cfg, c, 'answer call', 'answer');
     t.check('prompt is a string user message', typeof b.messages[0].content === 'string');
     const row = (await app.ledger())[0];
-    t.eq('row is stamped Generated', row.stamp, 'Generated');
+    t.eq('row is drafted and waiting for review', [row.status, row.stamp], ['generated', 'Needs review']);
     t.eq('answer text is the text block (thinking block skipped)', row.answer, defaultAnswerText('A1'));
     t.lacks('thinking signature is not leaked into the answer', row.answer, 'sig');
     // custom model is honoured on the next request
@@ -55,8 +55,8 @@ module.exports = (test, cfg) => {
     t.eq('built-in provider posts to the Anthropic endpoint', c.url, 'https://api.anthropic.com/v1/messages');
     t.check('no x-api-key header is sent for the built-in provider', !('x-api-key' in c.headers));
     t.check('no anthropic-dangerous-direct-browser-access header either', !('anthropic-dangerous-direct-browser-access' in c.headers));
-    t.eq('row generated', (await app.ledger())[0].stamp, 'Generated');
-    t.check('no provider API key field is needed (chip shows built-in)', /built-in/i.test(await app.page.textContent('#prov-label')), await app.page.textContent('#prov-label'));
+    t.eq('row generated', (await app.ledger())[0].status, 'generated');
+    t.eq('no API key is needed and the provider label reads just "Claude"', await app.page.textContent('#prov-label'), 'Claude');
   });
 
   test('gen.claude-key.missing-key-message', async (t) => {
@@ -81,7 +81,7 @@ module.exports = (test, cfg) => {
     t.check('prompt is sent as contents[0].parts[0].text', /senior proposal writer/.test(c.json.contents[0].parts[0].text));
     t.check('maxOutputTokens leaves headroom for thinking (>= 8192)', (c.json.generationConfig || {}).maxOutputTokens >= 8192, String((c.json.generationConfig || {}).maxOutputTokens));
     const row = (await app.ledger())[0];
-    t.eq('generated from candidates[0].content.parts', [row.stamp, row.answer], ['Generated', defaultAnswerText('A1')]);
+    t.eq('generated from candidates[0].content.parts', [row.status, row.answer], ['generated', defaultAnswerText('A1')]);
     await app.configure({ provider: 'gemini', key: KEY, model: 'gemini-2.5-pro' });
     await app.generateRow(0);
     t.match('typed model is URL-encoded into the path', app.calls.gemini[1].url, /models\/gemini-2\.5-pro:generateContent$/);
@@ -101,7 +101,7 @@ module.exports = (test, cfg) => {
     t.check('key not in URL or body', !c.url.includes(KEY) && !c.text.includes(KEY));
     t.info('openai request', `model=${c.json.model} max_tokens=${c.json.max_tokens}`);
     t.check('messages[0] is the user prompt', c.json.messages[0].role === 'user' && /senior proposal writer/.test(c.json.messages[0].content));
-    t.eq('answer read from choices[0].message.content', [(await app.ledger())[0].stamp, (await app.ledger())[0].answer], ['Generated', defaultAnswerText('A1')]);
+    t.eq('answer read from choices[0].message.content', [(await app.ledger())[0].status, (await app.ledger())[0].answer], ['generated', defaultAnswerText('A1')]);
     // custom base with trailing slash, custom model
     app.hosts.openai = ['https://llm.e2e.test'];
     await app.configure({ provider: 'openai', key: KEY, base: 'https://llm.e2e.test/v1/', model: 'my-model' });
@@ -120,7 +120,7 @@ module.exports = (test, cfg) => {
     t.check('no Anthropic key header; nothing from the browser but the body', !('x-api-key' in c.headers) && !('authorization' in c.headers));
     t.check('no team token header when none is set', !('x-team-token' in c.headers));
     t.info('proxy request', `model=${c.json.model} max_tokens=${c.json.max_tokens}`);
-    t.eq('answer read from the Anthropic-shaped reply', [(await app.ledger())[0].stamp, (await app.ledger())[0].answer], ['Generated', defaultAnswerText('A1')]);
+    t.eq('answer read from the Anthropic-shaped reply', [(await app.ledger())[0].status, (await app.ledger())[0].answer], ['generated', defaultAnswerText('A1')]);
     t.eq('no direct call to api.anthropic.com in proxy mode', app.calls.anthropic.length, 0);
     const TOKEN = randKey('team-');
     await app.configure({ provider: 'proxy', key: TOKEN });
@@ -149,7 +149,7 @@ module.exports = (test, cfg) => {
     const ms = Date.now() - t0;
     t.eq('the request is retried exactly once', app.calls.anthropic.length, 2);
     const row = (await app.ledger())[0];
-    t.eq('the answer ends Generated with text', [row.stamp, row.answer.length > 0], ['Generated', true]);
+    t.eq('the answer ends Generated with text', [row.status, row.answer.length > 0], ['generated', true]);
     t.info('retry wait', `${ms}ms from click to settled`);
     t.check('no failure toast for a recovered 429', !(await app.toasts()).some((x) => x.err), JSON.stringify((await app.toasts()).map((x) => x.text)));
   });
@@ -211,7 +211,7 @@ module.exports = (test, cfg) => {
       names.forEach((n, i) => {
         const r = rows[i];
         t.info(`${n}: what the app does`, `stamp=${r.stamp} answer=${JSON.stringify(r.answer)} toast=${JSON.stringify(allToasts.find((x) => x.startsWith(`(E${i + 1})`)) || null)}`);
-        const neverEmptyGenerated = !(r.stamp === 'Generated' && r.answer.trim() === '');
+        const neverEmptyGenerated = !(r.status === 'generated' && r.answer.trim() === '');
         t.check(`${n}: does not end Generated with empty text`, neverEmptyGenerated, `stamp=${r.stamp} answer=${JSON.stringify(r.answer)}`);
         t.check(`${n}: ends as a failed answer`, r.stamp === 'Failed' && r.answer === '', `stamp=${r.stamp} answer=${JSON.stringify(r.answer)}`);
       });
@@ -219,7 +219,7 @@ module.exports = (test, cfg) => {
       t.check('each failure is reported to the user (error toast per row)', errToasts.length >= names.length, `${errToasts.length} error toasts for ${names.length} rows`);
       // and the failures never leak into the deliverable
       await app.goPage('export');
-      t.match('export preview has no rows for failed answers', await app.page.textContent('#exp-count'), /^0 rows/);
+      t.match('export preview has no rows for failed answers', await app.page.textContent('#exp-count'), /^0 answers/);
     });
   }
 
@@ -235,27 +235,27 @@ module.exports = (test, cfg) => {
     t.has('B1 prompt carries the architecture document', byRef.B1, '[Source: kb-architecture.md]');
     t.match('C1 (no documentation) is told there is no matching documentation and must hedge', byRef.C1, /no matching documentation/i);
     const rows = await app.ledger();
-    t.eq('all three Generated', rows.map((r) => r.stamp), ['Generated', 'Generated', 'Generated']);
+    t.eq('all three drafted', rows.map((r) => r.status), ['generated', 'generated', 'generated']);
+    t.eq('the uncovered answer is shown as a gap, the others as waiting for review', rows.map((r) => r.stamp), ['Needs review', 'Needs review', 'Gap']);
     t.match('A1 cites kb-security.txt', rows[0].src, /kb-security\.txt/);
+    t.check('the A1 citation quotes the sentence that grounded it', rows[0].quotes.some((x) => /Zyphron attestation is performed quarterly/.test(x)), JSON.stringify(rows[0].quotes));
     t.match('B1 cites kb-architecture.md', rows[1].src, /kb-architecture\.md/);
     t.check('C1 cites nothing', !/kb-/.test(rows[2].src), rows[2].src);
     t.check('A1 coverage meter is high (>= 60%)', rows[0].covPct >= 60, rows[0].cov);
     t.check('B1 coverage meter is high (>= 60%)', rows[1].covPct >= 60, rows[1].cov);
     t.check('C1 coverage meter is 0% (nothing in the bucket)', rows[2].covPct === 0, rows[2].cov);
-    const cls = await app.page.$$eval('#ledger .q-row .coverage .meter', (els) => els.map((e) => e.className));
-    t.check('meters are colour-coded (green/warn/bad)', /bad/.test(cls[2]) && !/bad|warn/.test(cls[0]), JSON.stringify(cls));
+    t.check('meters are colour-coded (green/warn/bad)', /bad/.test(rows[2].tone) && !/bad|warn/.test(rows[0].tone), JSON.stringify(rows.map((r) => r.tone)));
     t.match('progress label reports completion', await app.page.textContent('#gen-label'), /3\s*\/\s*3/);
     // gap analysis (local, no AI calls)
     const calls = app.calls.anthropic.length;
     await app.page.click('#run-gaps');
     await app.waitToast(/gap analysis complete/i);
     t.eq('gap analysis makes no model calls', app.calls.anthropic.length, calls);
-    t.match('gap counter flags 1 of 3', await app.page.textContent('#gap-count'), /1 of 3/);
-    const gap = await app.page.textContent('#gap-list');
-    t.has('the uncovered question is listed', gap, 'C1');
-    const kws = await app.page.$$eval('#gap-list .gap-kw', (e) => e.map((x) => x.textContent));
-    t.check('missing topics are named (helicopter, maintenance)', kws.includes('helicopter') && kws.includes('maintenance'), JSON.stringify(kws));
-    t.check('covered questions are not in the gap list', !/A1|B1/.test(await app.page.$$eval('#gap-list .gap-item .clause', (e) => e.map((x) => x.textContent).join(','))));
+    t.eq('the Gaps filter counts 1', await app.page.textContent('#gap-count'), '1');
+    t.eq('the check opens the Gaps view', await app.page.getAttribute('[data-filter="gap"]', 'aria-selected'), 'true');
+    const gap = await app.gaps();
+    t.eq('only the uncovered question is listed as a gap', gap.refs, ['C1']);
+    t.check('missing topics are named (helicopter, maintenance)', gap.topics.includes('helicopter') && gap.topics.includes('maintenance'), JSON.stringify(gap.topics));
     // answered rows keep the citations that grounded their answer
     const after = await app.ledger();
     t.match('citations survive the gap run', after[0].src, /kb-security\.txt/);
@@ -279,13 +279,13 @@ module.exports = (test, cfg) => {
 
   test('gen.prompt-carries-tone-and-length', async (t) => {
     const app = await ready(t, { provider: 'claude', questions: [q('L1', 'Do you support SSO?')], lengths: { compliance: 140 } });
-    await app.page.selectOption('#tone-select', { index: 3 });
+    await app.configure({ tone: 3 });
     await app.generateAll();
     let p = lastPrompt(app.calls.anthropic[0]);
     t.has('configured compliance length reaches the prompt', p, 'Target about 140 words');
     t.has('tone option reaches the prompt', p, 'formal, suitable for public-sector procurement');
     t.has('compliance questions get the verdict rule', p, 'COMPLIANCE question');
-    t.match('row label shows the configured length', (await app.ledger())[0].type, /Compliance\b.{0,6}140w/);
+    t.match('row label shows the configured length', (await app.ledger())[0].type, /Compliance\b.{0,6}140 words/);
     const row = await app.openRow(0);
     await row.locator('[data-type]').selectOption('commercial');
     await app.generateRow(0);
@@ -299,10 +299,10 @@ module.exports = (test, cfg) => {
   test('gen.empty-bucket-warning', async (t) => {
     const app = await ready(t, { provider: 'claude', docs: [], questions: [Q_COVERED()] });
     await app.generateAll();
-    const warn = await app.waitToast(/bucket is empty/i);
+    const warn = await app.waitToast(/knowledge base is empty/i);
     t.check('empty bucket warns that answers will be generic', !!warn);
     t.match('prompt says no documentation matched', lastPrompt(app.calls.anthropic[0]), /no matching documentation/i);
-    t.eq('the answer is still produced', (await app.ledger())[0].stamp, 'Generated');
+    t.eq('the answer is still produced', (await app.ledger())[0].status, 'generated');
   });
 
   /* ---------------- generate-all behaviour ---------------- */
@@ -314,7 +314,8 @@ module.exports = (test, cfg) => {
       : { json: anthropicMessage(defaultAnswerText(/RFP QUESTION \(([^)]*)\)/.exec(lastPrompt(req))[1])) });
     await app.generateAll();
     let rows = await app.ledger();
-    t.eq('stamps show which answers failed', rows.map((r) => r.stamp), ['Generated', 'Failed', 'Generated']);
+    t.eq('statuses show which answers failed', rows.map((r) => r.status), ['generated', 'error', 'generated']);
+    t.eq('the failed one is shown as Failed', rows[1].stamp, 'Failed');
     t.match('progress label reports the failure count', await app.page.textContent('#gen-label'), /1 failed/i);
     t.match('summary toast is an error that says 2 generated and 1 failed', (await app.toasts()).filter((x) => x.err).map((x) => x.text).join(' | '), /2 answers generated.*1 failed/i);
     await app.page.waitForTimeout(100);
@@ -325,7 +326,7 @@ module.exports = (test, cfg) => {
     await app.generateAll();
     t.eq('second run only calls the model for the row that failed', app.calls.anthropic.length - before, 1);
     rows = await app.ledger();
-    t.eq('all rows now have answers; the approved one is still approved', rows.map((r) => r.stamp), ['Approved', 'Generated', 'Generated']);
+    t.eq('all rows now have answers; the approved one is still approved', rows.map((r) => r.status), ['approved', 'generated', 'generated']);
     await app.clearToasts();
     await app.page.click('#generate-all');
     await app.waitToast(/every question already has an answer/i);
@@ -342,18 +343,18 @@ module.exports = (test, cfg) => {
     await app.approve(0);
     rows = await app.ledger();
     t.eq('approve stamps the row', rows[0].stamp, 'Approved');
-    t.match('the button flips to Unapprove', await (await app.openRow(0)).locator('[data-approve]').textContent(), /unapprove/i);
+    t.eq('the approve button shows it is pressed', await (await app.openRow(0)).locator('[data-approve]').getAttribute('aria-pressed'), 'true');
     await app.page.waitForTimeout(300);
     const stored = await app.storedQuestions();
     t.eq('edit and approval are persisted', [stored[0].answer, stored[0].status], ['Hand-edited answer with "quotes" and <angle> brackets & ampersands.', 'approved']);
     await app.approve(0);
-    t.eq('unapprove returns the row to Generated', (await app.ledger())[0].stamp, 'Generated');
+    t.eq('a second press returns the row to review', [(await app.ledger())[0].status, (await app.ledger())[0].stamp], ['generated', 'Needs review']);
     // typing into an empty draft promotes it from Draft
     const app2 = await ready(t, { provider: 'claude', questions: [q('M1', 'A question answered by hand entirely.')] });
     await app2.editAnswer(0, 'Written by a human.');
     await app2.page.waitForTimeout(300);
     t.eq('a hand-written answer promotes Draft to Generated in the saved state', (await app2.storedQuestions())[0].status, 'generated');
-    t.eq('and the visible stamp reflects it straight away (not left saying Draft)', (await app2.ledger())[0].stamp, 'Generated');
+    t.eq('and the list reflects it straight away (not left saying To draft)', (await app2.ledger())[0].stamp, 'Needs review');
   });
 
   /* ---------------- secrets ---------------- */
@@ -375,6 +376,6 @@ module.exports = (test, cfg) => {
     await app.reload();
     await app.page.click('#open-settings');
     t.eq('after a reload the key field is empty (session only)', await app.page.inputValue('#set-key'), '');
-    t.eq('but the provider choice was remembered', await app.page.inputValue('#set-provider'), 'claude-key');
+    t.eq('but the provider choice was remembered', await app.provider(), 'claude-key');
   });
 };

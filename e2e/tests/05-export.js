@@ -26,7 +26,7 @@ module.exports = (test) => {
       : defaultAnswerText(a.ref));
     const app = await generated(t, { answerText });
     await app.exportOptions({ title: 'E2E Proposal 2026', company: 'Northwind E2E Ltd', gaps: true, sources: true, fmt: 'docx' });
-    t.match('preview lists all three answers', await app.page.textContent('#exp-count'), /^3 rows/);
+    t.match('preview lists all three answers', await app.page.textContent('#exp-count'), /^3 answers/);
     t.check('docx is the selected format', await app.page.evaluate(() => document.querySelector('.fmt-card[data-fmt="docx"]').classList.contains('sel')));
     const dl = await app.downloadExport();
     t.eq('file name comes from the proposal title', dl.name, 'E2E_Proposal_2026.docx');
@@ -63,7 +63,7 @@ module.exports = (test) => {
     await app.approve(0);
     await app.goPage('export');
     await app.exportOptions({ approvedOnly: true, sources: false, gaps: false });
-    t.match('approved-only preview shows 1 row', await app.page.textContent('#exp-count'), /^1 rows/);
+    t.match('approved-only preview shows 1 row', await app.page.textContent('#exp-count'), /^1 answer\b/);
     const dl2 = await app.downloadExport();
     const t2 = (await t.mammoth(dl2.buffer)).text;
     t.check('approved-only: A1 present, B1 and C1 absent', t2.includes('ANSMARK-A1') && !t2.includes('ANSMARK-B1') && !t2.includes('ANSMARK-C1'));
@@ -324,7 +324,7 @@ module.exports = (test) => {
 
   test('export.preview-follows-options', async (t) => {
     const app = await generated(t, { questions: [Q_COVERED(), Q_ARCH()] });
-    t.match('two rows', await app.page.textContent('#exp-count'), /^2 rows/);
+    t.match('two rows', await app.page.textContent('#exp-count'), /^2 answers/);
     t.has('sources column shown by default', await app.page.textContent('#exp-preview thead'), 'Sources');
     await app.page.uncheck('#exp-sources');
     t.lacks('sources column hidden when unticked', await app.page.textContent('#exp-preview thead'), 'Sources');
@@ -332,7 +332,7 @@ module.exports = (test) => {
     await app.approve(1);
     await app.goPage('export');
     await app.page.check('#exp-approved-only');
-    t.match('approved-only narrows the preview to 1 row', await app.page.textContent('#exp-count'), /^1 rows/);
+    t.match('approved-only narrows the preview to 1 row', await app.page.textContent('#exp-count'), /^1 answer\b/);
     await app.goPage('workspace');
     await app.approve(1);        // un-approve: nothing approved any more
     await app.goPage('export');

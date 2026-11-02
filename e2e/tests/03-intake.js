@@ -32,7 +32,7 @@ module.exports = (test, cfg) => {
     t.eq('ledger refs', rows.map((r) => r.ref), questions.map((q) => q.ref));
     t.eq('ledger question text', rows.map((r) => r.text), questions.map((q) => q.q));
     t.eq('ledger types come from the model', rows.map((r) => r.type.split(' ')[0]), questions.map((q) => q.type[0].toUpperCase() + q.type.slice(1)));
-    t.check('rows start as drafts with no coverage yet', rows.every((r) => /draft/i.test(r.stamp) && r.covPct === null));
+    t.check('rows start as drafts with no coverage yet', rows.every((r) => r.status === 'draft' && r.stamp === 'To draft' && r.covPct === null));
     t.match('question counter', await app.page.textContent('#q-count'), new RegExp(`${questions.length} questions`));
     await app.waitToast(new RegExp(`extracted ${questions.length}`, 'i'));
     return app;
@@ -152,7 +152,8 @@ module.exports = (test, cfg) => {
     let rows = await app.ledger();
     t.eq('refs auto-number Q1..Q4', rows.map((r) => r.ref), ['Q1', 'Q2', 'Q3', 'Q4']);
     t.eq('questions are auto-classified', rows.map((r) => r.type.split(' ')[0]), cases.map((c) => c[1]));
-    t.match('length target is shown per type', rows[0].type, /~80w/);
+    t.match('length target is shown per type', rows[0].type, /~80 words/);
+    await app.openIntake();
     app.dialogQueue.push({ accept: false });
     await app.page.click('#add-q-btn');
     app.dialogQueue.push({ accept: true, text: '   ' });
@@ -162,7 +163,7 @@ module.exports = (test, cfg) => {
     const row = await app.openRow(3);
     await row.locator('[data-type]').selectOption('technical');
     rows = await app.ledger();
-    t.match('reassigning a type updates the row label', rows[3].type, /^Technical\b.{0,6}250w/);
+    t.match('reassigning a type updates the row label', rows[3].type, /^Technical\b.{0,6}250 words/);
     await (await app.openRow(3)).locator('[data-delq]').click();
     t.eq('delete removes the question', (await app.ledger()).length, 3);
   });
@@ -212,7 +213,9 @@ module.exports = (test, cfg) => {
     m = await mapPanel(app);
     t.check('round-trip card becomes available after import', !m.roundtripDisabled);
     t.match('round-trip hint names the response column and sheet', await app.page.textContent('#roundtrip-hint'), /column C.*Questionnaire.*acme-questionnaire\.xlsx/s);
+    t.check('the import leaves the intake for the question list', !(await app.page.isVisible('#extract-btn')) && await app.page.isVisible('#ledger'));
     // changing the response column after import keeps the round trip in step
+    await app.openIntake();
     await app.page.selectOption('#map-ans', '-1');
     t.check('choosing "skip" for the response column disables the round trip again', (await mapPanel(app)).roundtripDisabled);
     await app.page.selectOption('#map-ans', '2');

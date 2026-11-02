@@ -16,9 +16,10 @@ module.exports = (test) => {
     const rows = await app.docRows();
     t.eq('six rows in the bucket table', rows.map((r) => r.name).sort(), all.map((f) => f.name).sort());
     t.eq('file-type badges', rows.map((r) => r.type).sort(), ['CSV', 'DOCX', 'MD', 'PDF', 'TXT', 'XLSX']);
-    t.match('document counter shows 6 of 500', await app.page.textContent('#doc-count'), /6\s*\/\s*500/);
+    t.match('document counter shows 6 of 500', await app.page.textContent('#doc-count'), /6 of 500 sources/);
+    t.check('each row shows its chunk count and the day it was added', rows.every((r) => /^\d+$/.test(r.chunks) && +r.chunks > 0 && r.added.length > 0), JSON.stringify(rows.map((r) => [r.chunks, r.added])));
     t.check('continue button enabled', await app.page.isEnabled('#to-workspace'));
-    t.check('indexed-size label is non-zero', !/^0 KB/.test(await app.page.textContent('#storage-label')), await app.page.textContent('#storage-label'));
+    t.check('indexed-size label is non-zero', !/ 0 KB$/.test(await app.page.textContent('#storage-label')), await app.page.textContent('#storage-label'));
     t.check('no parse failure toast', !(await app.toastSeen(/couldn.t parse/i)));
     t.match('success toast', (await app.waitToast(/added 6/i)).text, /added 6/i);
 
@@ -105,9 +106,9 @@ module.exports = (test) => {
     t.check('no orphaned document shards left in storage', stale.length <= 1, 'shard keys: ' + stale.join(','));
     await app.page.click('#doc-list [data-del]');
     await app.waitDocs(0);
-    t.match('empty bucket shows the empty state', await app.page.textContent('#doc-list'), /nothing in the bucket/i);
+    t.match('empty bucket shows the empty state', await app.page.textContent('#doc-list'), /no sources yet/i);
     t.check('continue disabled again', await app.page.isDisabled('#to-workspace'));
-    t.match('size label returns to 0 KB', await app.page.textContent('#storage-label'), /^0 KB/);
+    t.match('size label returns to 0 chunks and 0 KB', await app.page.textContent('#storage-label'), /^0 chunks · 0 KB$/);
   });
 
   test('kb.legacy-xls-and-uppercase-extensions', async (t) => {

@@ -18,15 +18,19 @@ module.exports = (test) => {
     const app = await t.app();
     await app.goto();
     await app.seed({ docs: DOCS(), questions: [] });
+    await app.openSettings();
+    t.check('push is disabled until an engine is connected', await app.page.isDisabled('#engine-push'));
     await app.page.click('#engine-check');
     await app.waitToast(/pick .*engine/i);
     t.pass('checking the engine before choosing it explains what to do');
+    await app.closeSettings();
     const TOKEN = randKey('tok-');
     await app.configure({ provider: 'engine', base: ENGINE_BASE + '/', key: TOKEN });
+    await app.openSettings();
     await app.page.click('#engine-check');
     await app.waitToast(/engine online/i);
     t.eq('health check hits <base>/health (trailing slash trimmed)', engineCalls(app, '/health')[0].url, ENGINE_BASE + '/health');
-    t.eq('pill says online', await app.page.textContent('#engine-pill'), 'online');
+    t.eq('the badge says connected', await app.page.textContent('#engine-pill'), 'Connected');
     t.match('status line shows docs, chunks and model from the health payload', await app.page.textContent('#engine-status'), /3 docs.*9 chunks.*claude-engine-e2e/);
     await app.clearToasts();
     await app.page.click('#engine-push');
@@ -48,21 +52,21 @@ module.exports = (test) => {
     app.mock.engine = () => ({ abort: 'failed' });
     await app.page.click('#engine-check');
     await app.waitToast(/engine unreachable/i);
-    t.eq('unreachable engine shows offline', await app.page.textContent('#engine-pill'), 'offline');
+    t.eq('an unreachable engine says so', await app.page.textContent('#engine-pill'), 'Unreachable');
   });
 
   test('engine.single-answer', async (t) => {
     const TOKEN = randKey('tok-');
     const app = await ready(t, { questions: [q('E1', 'Do you support SSO?')], key: TOKEN });
     await app.goPage('workspace');
-    await app.page.selectOption('#tone-select', { index: 2 });
+    await app.configure({ tone: 2 });
     await app.generateRow(0);
     const c = engineCalls(app, '/answer')[0];
     t.eq('POST <base>/answer', [c.method, c.url], ['POST', ENGINE_BASE + '/answer']);
     t.eq('body: question, type, tone, max_words', [c.json.question, c.json.type, c.json.tone, c.json.max_words], ['Do you support SSO?', 'compliance', 'concise and technical, for engineering evaluators', 80]);
     t.eq('X-Team-Token header', c.headers['x-team-token'], TOKEN);
     const row = (await app.ledger())[0];
-    t.eq('row generated from the engine answer', [row.stamp, row.answer], ['Generated', 'ENGINE-ANSWER for: Do you support SSO?']);
+    t.eq('row generated from the engine answer', [row.status, row.answer], ['generated', 'ENGINE-ANSWER for: Do you support SSO?']);
     t.check('engine-supplied citations and coverage are displayed', /engine-kb\.txt/.test(row.src) && row.covPct === 85, `${row.src} / ${row.cov}`);
     t.eq('no direct call to a model provider (the key stays on the server)', [app.calls.anthropic.length, app.calls.openai.length, app.calls.gemini.length], [0, 0, 0]);
     t.eq('retrieval is server-side: nothing local was sent in a prompt', c.text.includes('REFERENCE MATERIAL'), false);
@@ -79,7 +83,7 @@ module.exports = (test) => {
     t.eq('every question is sent with id, ref, question, type and max_words', body.questions.map((x) => [x.ref, typeof x.id, typeof x.question, typeof x.type, typeof x.max_words]), [['A1', 'string', 'string', 'string', 'number'], ['B1', 'string', 'string', 'string', 'number'], ['C1', 'string', 'string', 'string', 'number']]);
     t.eq('tone travels at batch level', typeof body.tone, 'string');
     const rows = await app.ledger();
-    t.eq('answers from the stream land on the right rows', rows.map((r) => [r.stamp, r.answer]), [['Generated', 'ENGINE-BATCH A1'], ['Generated', 'ENGINE-BATCH B1'], ['Generated', 'ENGINE-BATCH C1']]);
+    t.eq('answers from the stream land on the right rows', rows.map((r) => [r.status, r.answer]), [['generated', 'ENGINE-BATCH A1'], ['generated', 'ENGINE-BATCH B1'], ['generated', 'ENGINE-BATCH C1']]);
     t.match('progress label reports the batch', await app.page.textContent('#gen-label'), /3\s*\/\s*3/);
     t.check('success toast', !!(await app.toastSeen(/batch complete/i)));
   });
@@ -101,7 +105,7 @@ module.exports = (test) => {
     };
     await app.generateAll();
     const rows = await app.ledger();
-    t.eq('the good answer is kept; the error event and the empty answer are Failed', rows.map((r) => r.stamp), ['Generated', 'Failed', 'Failed']);
+    t.eq('the good answer is kept; the error event and the empty answer are Failed', rows.map((r) => r.status), ['generated', 'error', 'error']);
     t.eq('the empty answer was not stored as text', rows[2].answer, '');
     const texts = (await app.toasts()).map((x) => x.text).join(' | ');
     t.match('a stream that ends without a done event is called out', texts, /ended early|cut short|incomplete/i);
@@ -117,7 +121,7 @@ module.exports = (test) => {
     const b = engineCalls(app, '/batch');
     t.eq('one /batch call that carries only the questions the engine accepts', b.map((c) => c.json.questions.map((x) => x.ref)), [['A1', 'B1']]);
     const rows = await app.ledger();
-    t.eq('accepted questions are answered and the two refused ones fail on their own', rows.map((r) => r.stamp), ['Generated', 'Failed', 'Failed', 'Generated']);
+    t.eq('accepted questions are answered and the two refused ones fail on their own', rows.map((r) => r.status), ['generated', 'error', 'error', 'generated']);
     t.eq('the answers landed on the right rows', [rows[0].answer, rows[3].answer], ['ENGINE-BATCH A1', 'ENGINE-BATCH B1']);
     const texts = (await app.toasts()).map((x) => x.text).join(' | ');
     t.match('a toast names the refused questions and the limits', texts, /2 questions can't go to the engine.*L1.*S1.*3 to 4000/i);
@@ -127,10 +131,11 @@ module.exports = (test) => {
   test('a11y.keyboard-ledger-and-dialog', async (t) => {
     const app = await ready(t);
     await app.goPage('workspace');
-    await app.page.focus('#ledger .q-head');
+    const second = app.page.locator('#ledger [data-qid]').nth(1);
+    await second.focus();
     await app.page.keyboard.press('Enter');
-    t.check('Enter opens a ledger row', await app.page.$eval('#ledger .q-row', (r) => r.classList.contains('open')));
-    t.eq('aria-expanded follows', await app.page.$eval('#ledger .q-head', (h) => h.getAttribute('aria-expanded')), 'true');
+    t.eq('Enter on a question in the list selects it (aria-current)', await second.getAttribute('aria-current'), 'true');
+    t.eq('and opens it in the answer panel', await app.page.textContent('#question-heading'), await second.locator('.q-text').textContent());
     await app.page.click('#open-settings');
     t.check('the settings dialog takes focus', await app.page.evaluate(() => document.activeElement && document.activeElement.id === 'settings-dialog'));
     await app.page.keyboard.press('Escape');
@@ -155,7 +160,7 @@ module.exports = (test) => {
     const b = engineCalls(app, '/batch');
     t.eq('101 questions become two batches of 100 and 1', b.map((c) => c.json.questions.length), [100, 1]);
     const rows = await app.ledger();
-    t.eq('all 101 rows generated', rows.filter((r) => r.stamp === 'Generated').length, 101);
+    t.eq('all 101 rows generated', rows.filter((r) => r.status === 'generated').length, 101);
   });
 
   test('engine.gap-analysis-uses-search', async (t) => {
@@ -166,7 +171,7 @@ module.exports = (test) => {
     const s = engineCalls(app, '/search');
     t.eq('one /search per question (no model call)', [s.length, app.calls.anthropic.length], [2, 0]);
     t.eq('search body carries the question text and k', [s[0].json.query, s[0].json.k], ['Describe how Zyphron attestation is performed and by whom.', 6]);
-    t.match('coverage from the engine is displayed and flagged', await app.page.textContent('#gap-count'), /2 of 2/);
+    t.eq('coverage from the engine is displayed and flagged', await app.page.textContent('#gap-count'), '2');
     t.has('engine missing_terms are shown in the gap report', await app.page.textContent('#gap-list'), 'helicopter');
   });
 
@@ -192,6 +197,6 @@ module.exports = (test) => {
     await app2.page.waitForTimeout(400);
     t.match('engine without a URL is reported, not silently ignored', (await app2.toasts()).map((x) => x.text).join(' | '), /engine url/i);
     t.eq('and no request is made', app2.calls.engine.length + app2.calls.anthropic.length, 0);
-    t.check('the row is not left stuck on Working', (await app2.ledger())[0].stamp !== 'Working…' && !/working/i.test((await app2.ledger())[0].stamp));
+    t.check('the row is not left stuck drafting', (await app2.ledger())[0].status !== 'working');
   });
 };

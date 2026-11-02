@@ -47,7 +47,7 @@ module.exports = (test) => {
     await app.seed({ docs: DOCS(), questions: [Q_COVERED()] });
     await app.goPage('workspace');
     await app.generateAll();
-    t.eq('everything still works in memory', (await app.ledger())[0].stamp, 'Generated');
+    t.eq('everything still works in memory', (await app.ledger())[0].status, 'generated');
     t.check('no uncaught errors while persistence is unavailable', (await app.pageIssues()).length === 0, (await app.pageIssues())[0] || '');
   });
 
@@ -141,7 +141,7 @@ module.exports = (test) => {
     await app.page.dblclick('#generate-all');
     await app.settled();
     t.eq('a double click starts one run: one call per question', app.calls.anthropic.length, 2);
-    t.eq('both rows generated', (await app.ledger()).map((r) => r.stamp), ['Generated', 'Generated']);
+    t.eq('both rows generated', (await app.ledger()).map((r) => r.status), ['generated', 'generated']);
   });
 
   test('gen.typing-survives-a-background-render', async (t) => {

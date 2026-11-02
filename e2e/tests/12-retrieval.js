@@ -22,10 +22,11 @@ module.exports = (test) => {
     await app.goPage('workspace');
     await app.page.click('#run-gaps');
     await app.waitToast(/gap analysis complete/i);
-    const flagged = await app.page.$$eval('#gap-list .gap-item .clause', (e) => e.map((x) => x.textContent.trim()));
+    const gap = await app.gaps();
+    const flagged = gap.refs;
     t.check('the documented versions are not a gap', !flagged.includes('V1'), flagged.join(','));
     t.check('undocumented versions are a gap', flagged.includes('V2'), flagged.join(','));
-    const kws = await app.page.$$eval('#gap-list .gap-kw', (e) => e.map((x) => x.textContent.trim()));
+    const kws = gap.topics;
     t.check('the missing versions are named', ['soc1', 'type1', 'tls1'].every((k) => kws.includes(k)), JSON.stringify(kws));
     t.check('an accented word is a whole word (Zürich does not match "rich text")', flagged.includes('Z1') && kws.includes('zürich'), JSON.stringify(kws));
     t.check('Japanese text is matched', !flagged.includes('J1'), flagged.join(','));

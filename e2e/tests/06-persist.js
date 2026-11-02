@@ -30,9 +30,9 @@ module.exports = (test) => {
     t.eq('citations restored', after.map((r) => r.src), before.map((r) => r.src));
     t.eq('theme restored', await app.page.evaluate(() => document.documentElement.dataset.theme), themeBefore);
     t.match('"restored your previous session" toast', (await app.waitToast(/restored/i)).text, /restored/i);
-    t.match('provider chip reflects the saved provider', await app.page.textContent('#prov-label'), /your key/i);
+    t.eq('the provider label reflects the saved provider', await app.page.textContent('#prov-label'), 'Claude API');
     await app.page.click('#open-settings');
-    t.eq('settings: provider', await app.page.inputValue('#set-provider'), 'claude-key');
+    t.eq('settings: provider', await app.provider(), 'claude-key');
     t.eq('settings: model', await app.page.inputValue('#set-model'), 'claude-persist-e2e');
     t.eq('settings: length target', await app.page.inputValue('#len-technical'), '350');
     t.eq('settings: key is NOT restored', await app.page.inputValue('#set-key'), '');
@@ -46,7 +46,7 @@ module.exports = (test) => {
     await app.generateRow(2);
     const last = app.calls.anthropic[app.calls.anthropic.length - 1];
     t.eq('the saved model is used once the key is re-entered', last.json.model, 'claude-persist-e2e');
-    t.eq('the regenerated row is Generated', (await app.ledger())[2].stamp, 'Generated');
+    t.eq('the regenerated row is drafted', (await app.ledger())[2].status, 'generated');
   });
 
   test('persist.two-tabs-merge', async (t) => {
@@ -56,11 +56,11 @@ module.exports = (test) => {
     // a second tab on the same browser profile
     const b = await app.ctx.newPage();
     await b.goto(app.h.origin + '/index.html', { waitUntil: 'load' });
-    await b.waitForFunction(() => document.querySelectorAll('#ledger .q-row').length === 1 && document.querySelectorAll('#doc-list tbody tr').length === 1);
-    const refs = (p) => p.$$eval('#ledger .q-row .clause', (c) => c.map((x) => x.textContent.trim()));
-    const answers = (p) => p.$$eval('#ledger textarea[data-ans]', (c) => c.map((x) => x.value));
+    await b.waitForFunction(() => +document.querySelector('[data-filter="all"] .n').textContent === 1 && document.querySelectorAll('#doc-list tbody tr').length === 1);
+    const refs = (p) => p.$$eval('#ledger [data-qid] .q-num', (c) => c.map((x) => x.textContent.trim()));
+    const answers = (p) => app.ledger(p).then((rows) => rows.map((r) => r.answer));
     const docNames = (p) => p.$$eval('#doc-list tbody tr td:first-child', (c) => c.map((x) => x.textContent.trim()));
-    const counted = (p, nq, nd) => p.waitForFunction(([a, c]) => document.querySelectorAll('#ledger .q-row').length === a &&
+    const counted = (p, nq, nd) => p.waitForFunction(([a, c]) => +document.querySelector('[data-filter="all"] .n').textContent === a &&
       document.querySelectorAll('#doc-list tbody tr').length === c, [nq, nd], { timeout: 8000 }).then(() => true, () => false);
 
     // tab A adds a question and a document; tab B shows both without a reload
@@ -74,12 +74,10 @@ module.exports = (test) => {
     t.check('the other tab says why its view changed', await b.evaluate(() => window.__toasts.some((x) => /another tab/i.test(x.text))));
 
     // tab B writes an answer; tab A shows it, and A's own next save keeps it
-    const rowB = b.locator('#ledger .q-row').nth(0);
-    await rowB.locator('.q-head').click();
-    await rowB.locator('textarea[data-ans]').fill('Answer written in the second tab.');
-    await rowB.locator('textarea[data-ans]').blur();
-    const shown = await app.page.waitForFunction(() => (document.querySelector('#ledger textarea[data-ans]') || {}).value === 'Answer written in the second tab.', null, { timeout: 8000 }).then(() => true, () => false);
-    t.check('the first tab shows the answer written in the second', shown, JSON.stringify(await answers(app.page)));
+    await app.editAnswer(0, 'Answer written in the second tab.', b);
+    const shown = await app.page.waitForFunction(() => (document.querySelector('#ledger [data-qid]') || { dataset: {} }).dataset.status === 'generated', null, { timeout: 8000 }).then(() => true, () => false);
+    const seen = await answers(app.page);
+    t.check('the first tab shows the answer written in the second', shown && seen[0] === 'Answer written in the second tab.', JSON.stringify(seen));
     await app.editAnswer(1, 'Answer written in the first tab.');
     await app.page.waitForTimeout(300);
     t.eq('storage keeps both tabs\' answers', (await app.storedQuestions()).map((x) => x.answer), ['Answer written in the second tab.', 'Answer written in the first tab.']);
@@ -99,8 +97,7 @@ module.exports = (test) => {
       localStorage.setItem('cs-docs-meta', JSON.stringify({ gen, shards: 1, count: docs.length, at: Date.now() }));
     });
     t.eq('the first tab has not seen them yet', [(await refs(app.page)).length, (await docNames(app.page)).length], [2, 2]);
-    await app.openRow(1);
-    await app.page.locator('#ledger .q-row').nth(1).locator('[data-delq]').click();
+    await (await app.openRow(1)).locator('[data-delq]').click();
     await app.page.click('#nav-bucket');
     await app.page.click('#doc-list [aria-label="Remove alpha.txt"]');
     await app.page.waitForTimeout(900);                      // the bucket save is debounced
@@ -127,7 +124,7 @@ module.exports = (test) => {
     await app.configure({ provider: 'claude-key', key: randKey('k-') });
     const b = await app.ctx.newPage();
     await b.goto(app.h.origin + '/index.html', { waitUntil: 'load' });
-    await b.waitForFunction(() => document.querySelectorAll('#ledger .q-row').length === 3);
+    await b.waitForFunction(() => +document.querySelector('[data-filter="all"] .n').textContent === 3);
     await b.click('#nav-workspace');
     const base = app.mock.anthropic;
     app.mock.anthropic = async (req, a) => ({ ...(await base(req, a)), delay: 1200 });
@@ -135,17 +132,16 @@ module.exports = (test) => {
     // which tab A has queued but not started
     await app.page.click('#generate-all');
     await app.page.waitForTimeout(300);
-    const rowB = b.locator('#ledger .q-row').nth(2);
-    await rowB.locator('.q-head').click();
-    await rowB.locator('select[data-type]').selectOption('commercial');
+    const panelB = await app.openRow(2, b);
+    await panelB.locator('select[data-type]').selectOption('commercial');
     await app.settled(20000);
     await app.page.waitForTimeout(400);
     const stored = await app.storedQuestions();
     t.eq('every answer tab A generated is stored', stored.map((x) => x.answer), ['G1', 'G2', 'G3'].map(defaultAnswerText));
     t.eq('tab B\'s type change is kept', stored[2].type, 'commercial');
     t.check('tab A asked for G3 as a commercial question', app.calls.anthropic.some((c) => /COMMERCIAL question/.test(c.text) && /RFP QUESTION \(G3\)/.test(c.text)), String(app.calls.anthropic.length));
-    const followed = await b.waitForFunction(() => [...document.querySelectorAll('#ledger textarea[data-ans]')].every((x) => x.value), null, { timeout: 8000 }).then(() => true, () => false);
-    t.check('tab B shows all three answers', followed);
+    const followed = await b.waitForFunction(() => [...document.querySelectorAll('#ledger [data-qid]')].every((x) => x.dataset.status === 'generated'), null, { timeout: 8000 }).then(() => true, () => false);
+    t.check('tab B shows all three answers', followed && (await app.ledger(b)).every((r) => r.answer), JSON.stringify((await app.ledger(b)).map((r) => r.answer.slice(0, 20))));
     await b.close();
   });
 
@@ -184,7 +180,7 @@ module.exports = (test) => {
     t.match('import toast reports counts', (await B.waitToast(/workspace loaded/i)).text, /2 sources, 3 questions/);
     await B.page.click('#open-settings');
     t.eq('imported length target is applied to the running app', await B.page.inputValue('#len-commercial'), '250');
-    t.eq('the local provider is not overwritten by the file', await B.page.inputValue('#set-provider'), 'claude');
+    t.eq('the local provider is not overwritten by the file', await B.provider(), 'claude');
     await B.page.click('#settings-close');
     await B.page.waitForTimeout(700);
     await B.reload();
@@ -242,7 +238,7 @@ module.exports = (test) => {
     await app.waitLedger(3);
     const rows = await app.ledger();
     t.check('records without id or ref are still rendered with defaults', rows[0].ref.length > 0 && rows[0].text === 'A question with nothing else at all', JSON.stringify(rows[0]));
-    t.eq('a row exported mid-generation comes back as Generated, not stuck on Working', rows[1].stamp, 'Generated');
+    t.eq('a row exported mid-generation comes back as drafted, not stuck drafting', [rows[1].status, rows[1].stamp], ['generated', 'To draft']);
     t.check('junk coverage/sources/type/answer are coerced safely', rows[2].covPct === null && rows[2].answer === '' && /^(Compliance|Technical|Commercial|Narrative)/.test(rows[2].type), JSON.stringify(rows[2]));
     t.eq('non-object and text-less docs are dropped, the valid one kept', (await app.docRows()).map((d) => d.name), ['noid.txt']);
     t.check('no uncaught errors while importing sloppy data', (await app.pageIssues()).length === 0);
@@ -269,6 +265,7 @@ module.exports = (test) => {
     t.eq('and does not even fetch the directory file', app.directoryFetches, before);
     // the manual button loads it on demand (asks before replacing)
     app.dialogQueue.push({ accept: true });
+    await app.openSettings();
     await app.page.click('#ws-fetch');
     await app.waitDocs(1);
     await app.page.waitForFunction(() => document.querySelector('#doc-list tbody td').textContent.includes('newer-directory.txt'), null, { timeout: 8000 });
@@ -277,6 +274,7 @@ module.exports = (test) => {
     const app2 = await t.app();
     await app2.goto();
     t.check('no directory file: fresh visitor just gets an empty app, no error toast', !(await app2.toasts()).some((x) => x.err));
+    await app2.openSettings();
     await app2.page.click('#ws-fetch');
     const toast = await app2.waitToast(/no countersign-data\.json/i);
     t.check('manual load with no file explains what is missing (error toast)', toast.err, toast.text);

@@ -6,7 +6,7 @@ const REQUIRED_IDS = [
   'map-sheet', 'map-ref', 'map-q', 'map-ans', 'map-header', 'map-import', 'tone-select', 'generate-all', 'ledger',
   'run-gaps', 'gap-list', 'download-btn', 'exp-title', 'exp-company', 'exp-approved-only', 'exp-sources', 'exp-gaps',
   'exp-preview', 'fmt-roundtrip', 'open-settings', 'settings-modal', 'set-provider', 'set-key', 'set-base', 'set-model',
-  'settings-save', 'settings-close', 'theme-toggle', 'toast',
+  'settings-close', 'theme-toggle', 'toast', 'answer-panel', 'open-intake', 'close-intake', 'doc-search', 'resp-view', 'intake',
 ];
 
 module.exports = (test) => {
@@ -52,7 +52,7 @@ module.exports = (test) => {
     await app.goPage('export');
     t.eq('step 3 shows only the export page', await vis(), ['export']);
     await app.page.click('#page-export button[data-page="workspace"]');
-    t.eq('"Back to workspace" returns to workspace', await vis(), ['workspace']);
+    t.eq('the "Load an RFP" link on the export page returns to Responses', await vis(), ['workspace']);
     await app.goPage('bucket');
     t.eq('step 1 returns to the bucket', await vis(), ['bucket']);
     const before = await app.page.evaluate(() => document.documentElement.dataset.theme);
@@ -70,16 +70,17 @@ module.exports = (test) => {
     await app.goto();
     await app.page.click('#open-settings');
     t.check('settings modal opens', await app.page.evaluate(() => document.getElementById('settings-modal').classList.contains('show')));
-    const opts = await app.page.$$eval('#set-provider option', (o) => o.map((x) => x.value));
+    const opts = await app.page.$$eval('input[name="provider"]', (o) => o.map((x) => x.value));
     t.eq('provider choices', opts, ['claude', 'claude-key', 'gemini', 'openai', 'proxy', 'engine']);
-    await app.page.selectOption('#set-provider', 'gemini');
+    t.eq('the built-in provider is called just "Claude"', await app.page.textContent('#prov-label'), 'Claude');
+    await app.page.check('input[name="provider"][value="gemini"]');
     t.check('key row shows for gemini', await app.page.isVisible('#key-row'));
     t.check('base url row hidden for gemini', !(await app.page.isVisible('#base-row')));
-    await app.page.selectOption('#set-provider', 'engine');
+    await app.page.check('input[name="provider"][value="engine"]');
     t.check('base url row shows for engine', await app.page.isVisible('#base-row'));
-    await app.page.selectOption('#set-provider', 'claude');
+    await app.page.check('input[name="provider"][value="claude"]');
     t.check('key row hidden for built-in claude', !(await app.page.isVisible('#key-row')));
     await app.page.click('#settings-close');
-    t.check('cancel closes the modal', !(await app.page.evaluate(() => document.getElementById('settings-modal').classList.contains('show'))));
+    t.check('the close button closes the sheet', !(await app.page.evaluate(() => document.getElementById('settings-modal').classList.contains('show'))));
   });
 };

@@ -55,6 +55,29 @@ module.exports = (test) => {
     t.eq('an unreachable engine says so', await app.page.textContent('#engine-pill'), 'Unreachable');
   });
 
+  test('engine.removing-a-source-asks-to-forget-it', async (t) => {
+    const app = await ready(t, { questions: [] });
+    app.mock.engine = (req, a) => (new URL(req.url).pathname === '/forget'
+      ? (req.json.name === 'kb-architecture.md' ? { json: { ok: true, name: req.json.name, docs: 1, file_removed: true } } : { status: 404, json: { error: { message: 'No such document' } } })
+      : makeDefaults(a).engine(req));
+    await app.goPage('bucket');
+    app.dialogQueue.push({ accept: false });
+    await app.page.click('#doc-list [aria-label="Remove kb-security.txt"]');
+    await app.waitDocs(1);
+    t.match('removing a source asks about the engine', (app.dialogs[app.dialogs.length - 1] || {}).message || '', /remove .kb-security\.txt. from the answer engine/i);
+    t.eq('declining keeps it on the engine (no /forget)', engineCalls(app, '/forget').length, 0);
+    app.dialogQueue.push({ accept: true });
+    await app.page.click('#doc-list [aria-label="Remove kb-architecture.md"]');
+    await app.waitToast(/removed kb-architecture\.md from the engine/i);
+    t.eq('accepting sends /forget with the document name', engineCalls(app, '/forget').map((c) => c.json.name), ['kb-architecture.md']);
+    // a source that was never pushed is reported as such, not as an error
+    await app.seed({ docs: DOCS(), questions: [] });
+    app.dialogQueue.push({ accept: true });
+    await app.page.click('#doc-list [aria-label="Remove kb-security.txt"]');
+    const hit = await app.waitToast(/kb-security\.txt was not in the engine/i);
+    t.check('a document the engine never had is not an error', !hit.err, hit.text);
+  });
+
   test('engine.single-answer', async (t) => {
     const TOKEN = randKey('tok-');
     const app = await ready(t, { questions: [q('E1', 'Do you support SSO?')], key: TOKEN });

@@ -211,7 +211,10 @@ with a leading underscore (`_README.txt`) instead of overwriting it.
 
 Pushing a document replaces any copy loaded under its original name, whether it
 came from `DATA_FILE` or from a `kb/` file whose name was not canonical, so the web
-app's **Push sources** (Settings → Answer engine) never indexes a document twice. At boot a `kb/` file
+app's **Push sources** (Settings → Answer engine) never indexes a document twice. Pushing
+only adds and replaces: removing a source in the web app while the Countersign Engine
+provider is selected asks whether to `/forget` it on the engine too, since the engine's
+knowledge base is shared and may hold documents the browser never had. At boot a `kb/` file
 likewise supersedes the `DATA_FILE` document it was pushed from.
 
 `/ingest` response:

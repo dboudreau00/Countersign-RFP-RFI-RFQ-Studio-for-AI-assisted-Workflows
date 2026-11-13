@@ -1778,8 +1778,21 @@ function renderDocs(){
 $("doc-list").addEventListener("click", async e => {
   const b = e.target.closest("[data-del]");
   if(!b) return;
+  const doc = S.docs.find(d => d.id === b.dataset.del);
   S.docs = S.docs.filter(d => d.id !== b.dataset.del);
   renderDocs(); await persistDocs();
+  // "Push sources" only adds. The engine's knowledge base is shared and also holds documents
+  // loaded on the server, so a local delete never prunes it by itself: ask, per document.
+  if(doc && engineMode() && confirm(`Also remove “${doc.name}” from the answer engine?\n\nOtherwise it stays indexed there and can still be cited in answers.`)){
+    try{
+      await engineFetch("/forget", { name: doc.name });
+      toast(`Removed ${doc.name} from the engine`);
+    }catch(err){
+      const absent = /^Engine 404\b/.test(err.message);
+      toast(absent ? `${doc.name} was not in the engine` : "Couldn't remove it from the engine: " + err.message, !absent);
+    }
+    syncEngineCard();
+  }
 });
 $("doc-search").addEventListener("input", () => { docQuery = $("doc-search").value.trim().toLowerCase(); renderDocs(); });
 

@@ -2081,7 +2081,7 @@ $("add-q-btn").onclick = () => {
 
 function answerPrompt(q, retrieval){
   const tone = toneOf();
-  const type = q.type || "narrative";
+  const type = safeType(q.type);
   const words = safeLen(type);
   const typeRules = {
     compliance: 'This is a COMPLIANCE question: open with a one-word verdict ("Yes.", "No." or "Partially."), then substantiate in a short paragraph. Only answer "Yes" if the reference material supports it.',

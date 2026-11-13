@@ -1633,15 +1633,21 @@ async function askAIOnce(prompt, opts){
   // openai-compatible
   if(!p.key) throw new Error("Add your API key in Settings");
   const base = (p.base || "https://api.openai.com/v1").replace(/\/$/,"");
-  const r = await providerFetch(base + "/chat/completions", {
+  const ask = (limit) => providerFetch(base + "/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + p.key },
     body: JSON.stringify({
       model: p.model || DEFAULT_OPENAI_MODEL,
-      max_tokens: maxTokens,
+      ...limit,
       messages: [{ role: "user", content: prompt }]
     })
   });
+  let r = await ask({ max_tokens: maxTokens });
+  // OpenAI's reasoning models refuse max_tokens and ask for max_completion_tokens, which
+  // also pays for their thinking, so the retry gets the same headroom as a Claude call.
+  // Other OpenAI-compatible servers may not know that field, so it is never sent first.
+  if(r.status === 400 && /max_completion_tokens/.test(await r.clone().text().catch(() => "")))
+    r = await ask({ max_completion_tokens: claudeTokens(maxTokens) });
   if(!r.ok) await bail("API (endpoint may block browser calls)", r);
   const data = await r.json();
   return data.choices?.[0]?.message?.content || "";

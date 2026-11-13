@@ -91,6 +91,25 @@ module.exports = (test, cfg) => {
     t.match('404 explains the model name is wrong', (await app.toasts()).map((x) => x.text).join(' | '), /unknown model/i);
   });
 
+  test('gen.openai-reasoning-model-fallback', async (t) => {
+    const app = await ready(t, { provider: 'openai', key: randKey('test-openai-'), model: 'o4-mini' });
+    const reply = { choices: [{ index: 0, message: { role: 'assistant', content: defaultAnswerText('A1') }, finish_reason: 'stop' }] };
+    app.mock.openai = (req) => ('max_tokens' in (req.json || {})
+      ? { status: 400, json: { error: { message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.", type: 'invalid_request_error', param: 'max_tokens' } } }
+      : { json: reply });
+    await app.generateAll();
+    const [first, second] = app.calls.openai;
+    t.eq('max_tokens is tried first, then max_completion_tokens', app.calls.openai.map((c) => Object.keys(c.json).filter((k) => /tokens/.test(k))), [['max_tokens'], ['max_completion_tokens']]);
+    t.check('the retry leaves room for reasoning (more than the answer cap)', second.json.max_completion_tokens > first.json.max_tokens + 4000, `${first.json.max_tokens} -> ${second.json.max_completion_tokens}`);
+    t.eq('the answer arrives', (await app.ledger())[0].status, 'generated');
+    // any other 400 is reported as it is, without a second call
+    app.mock.openai = () => ({ status: 400, json: { error: { message: 'Invalid model name' } } });
+    const before = app.calls.openai.length;
+    await app.generateRow(0);
+    t.eq('an unrelated 400 is not retried', app.calls.openai.length - before, 1);
+    t.match('and its message is shown', (await app.toasts()).map((x) => x.text).join(' | '), /Invalid model name/);
+  });
+
   test('gen.openai-compatible', async (t) => {
     const KEY = randKey('test-openai-');
     const app = await ready(t, { provider: 'openai', key: KEY });

@@ -1,6 +1,6 @@
 # Browser end-to-end suite
 
-Drives the real `index.html` in headless Chromium with Playwright: 95 tests and 767 checks
+Drives the real `index.html` in headless Chromium with Playwright: 98 tests and 782 checks
 covering page load, all six bucket formats, RFP intake (PDF, DOCX, XLSX with a title
 block, CSV, pasted text), every provider, retries and errors, all four exports read back
 with real libraries, the round trip into the issuer's workbook, persistence and two tabs

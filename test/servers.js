@@ -415,6 +415,12 @@ async function main() {
       check("no token: proxy.js refuses a request from another origin", r.status === 403, String(r.status));
       r = await request(pPort, "POST", "/proxy", msg);
       check("no token: proxy.js still serves a plain client", r.status === 200, String(r.status));
+      r = await request(ePort, "POST", "/search", q, { Origin: "https://127.0.0.1:" + ePort });
+      check("no token: a same-host page served over HTTPS is accepted by the engine", r.status === 200, String(r.status));
+      r = await request(pPort, "POST", "/proxy", msg, { Origin: "https://127.0.0.1:" + pPort });
+      check("no token: a same-host page served over HTTPS is accepted by proxy.js", r.status === 200, String(r.status));
+      r = await request(ePort, "POST", "/search", q, { Origin: "https://127.0.0.1:" + (ePort + 1) });
+      check("no token: the same host on another port is still another origin", r.status === 403, String(r.status));
       r = await request(oPort, "POST", "/search", q, { Origin: "https://app.example" });
       check("with ALLOW_ORIGIN set, that origin is served", r.status === 200, String(r.status));
       r = await request(enginePort, "POST", "/search", q, { ...T, Origin: "https://evil.example" });

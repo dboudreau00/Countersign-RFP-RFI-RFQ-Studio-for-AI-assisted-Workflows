@@ -65,7 +65,8 @@ function browserRefusal(req) {
   if (isLoopback(HOST) && host && !isLoopback(host))
     return "Host " + host + " is not allowed. Set COUNTERSIGN_TOKEN to serve other host names";
   const origin = req.headers.origin;
-  if (origin && origin !== "http://" + req.headers.host)
+  // same host either way: a page served over HTTPS in front of the proxy is same-origin too
+  if (origin && origin !== "http://" + req.headers.host && origin !== "https://" + req.headers.host)
     return "Requests from web pages need COUNTERSIGN_TOKEN or ALLOW_ORIGIN on the proxy";
   return null;
 }

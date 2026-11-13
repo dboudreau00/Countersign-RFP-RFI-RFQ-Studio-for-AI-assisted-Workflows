@@ -170,7 +170,9 @@ when it listens on `0.0.0.0`.
   (nginx: `location /rfp/proxy { proxy_pass http://127.0.0.1:8787/proxy; }`),
   then set the app's proxy URL to the relative path `proxy`. TLS is handled once
   and CORS never comes into play. `proxy.js` accepts `/proxy` at any mount point,
-  so a subpath like `/rfp/proxy` works without extra configuration.
+  so a subpath like `/rfp/proxy` works without extra configuration. Set
+  `COUNTERSIGN_TOKEN` here as well: nginx forwards your site's host name, and a proxy
+  with no token and no `ALLOW_ORIGIN` answers only loopback host names.
 - If the HTML really is served from a *different* origin than the proxy, set
   `ALLOW_ORIGIN=https://your-site.example` or a team token. With neither, the proxy
   answers only requests that come from no web page at all (curl, scripts) or from

@@ -1322,6 +1322,16 @@ const REF_WORDS = new Set(("section sections question questions requirement requ
 const ROMAN = { i: "1", ii: "2", iii: "3", iv: "4" };
 const ROMAN_WORDS = /^(type|tier|level|phase|class|stage)$/;
 const lowText = (t) => String(t).normalize("NFKC").toLowerCase();
+/* The same acronym table as engine.js, so "SSO" or "DR" in a question finds documents
+   that spell it out. No prototype: "constructor" must not look like an acronym. */
+const ALIASES = Object.assign(Object.create(null), {
+  sso: ["single", "sign"], mfa: ["multi", "factor", "authentication"],
+  dr: ["disaster", "recovery"], sla: ["service", "level", "uptime"],
+  bcp: ["business", "continuity"], iam: ["identity", "access"],
+  pii: ["personal", "data"], dpa: ["data", "processing"],
+  uptime: ["availability"], pricing: ["price", "cost", "licensing"],
+});
+const expandKws = (kws) => [...new Set(kws.flatMap(k => [k, ...(ALIASES[k] || [])]))];
 function keywords(q){
   const text = lowText(q);
   const out = [];
@@ -1343,7 +1353,8 @@ function keywords(q){
   for(const m of text.matchAll(/(?<![\p{L}\p{N}])(type|tier|level|phase|class|stage)[ -](iv|i{1,3})(?![\p{L}\p{N}])/gu))
     joined(m[1], ROMAN[m[2]], true);
   for(const m of text.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s?%/g)) out.push(m[1] + "%");
-  return [...new Set(out.filter(w => CJK.test(w) || (/\d/.test(w) && /[\p{L}%]/u.test(w)) || (w.length > 2 && !STOP.has(w))))];
+  // two-letter words are noise except the acronyms the alias table knows ("dr")
+  return [...new Set(out.filter(w => CJK.test(w) || (/\d/.test(w) && /[\p{L}%]/u.test(w)) || ((w.length > 2 || ALIASES[w]) && !STOP.has(w))))];
 }
 /* Word-boundary matcher: does `kw` appear in `lowText` as a word, allowing a short
    inflection suffix ("hosting" -> "hosted", "policies" -> "policy")? A raw substring
@@ -1362,7 +1373,10 @@ function kwRegex(kw){
   let re = _kwRe.get(kw);
   if(re) return re;
   let m;
-  if(CJK.test(kw)){
+  if(ALIASES[kw] && kw.length <= 3){
+    // an acronym is a whole word: "dr" must not match "drop", nor "sla" "slack"
+    re = new RegExp("(?<![\\p{L}\\p{N}])" + escRe(kw) + "s?(?![\\p{L}\\p{N}])", "u");
+  } else if(CJK.test(kw)){
     re = new RegExp(escRe(kw), "u");                      // the script has no word boundaries
   } else if((m = /^(\d+(?:\.\d+)?)%$/.exec(kw))){
     re = new RegExp("(?<![\\d.])" + escRe(m[1]) + "\\s?%", "u");
@@ -1396,17 +1410,18 @@ function kwRegex(kw){
 }
 const hasKw = (low, kw) => kwRegex(kw).test(low);
 function retrieve(question, budget = 11000){
-  const kws = keywords(question);
+  // kws is what the question says (coverage, gaps); scoreKws adds acronym expansions
+  const kws = keywords(question), scoreKws = expandKws(kws);
   const scored = [];
   for(const d of S.docs){
     // cheap doc-level prescreen so a 500-source bucket doesn't scan every chunk
     if(!d._low) d._low = lowText(d.text);
     let hit = false;
-    for(const k of kws){ if(hasKw(d._low, k)){ hit = true; break; } }
+    for(const k of scoreKws){ if(hasKw(d._low, k)){ hit = true; break; } }
     if(!hit) continue;
     for(const ch of chunksFor(d)){
       let score = 0;
-      for(const k of kws) if(hasKw(ch.low, k)) score += 1;
+      for(const k of scoreKws) if(hasKw(ch.low, k)) score += 1;
       if(score > 0) scored.push({ score, doc: d.name, text: ch.text });
     }
   }
@@ -1429,7 +1444,7 @@ function retrieve(question, budget = 11000){
      little; one in none is maximally distinctive and counts for a lot. */
   let covWeight = 0, totWeight = 0;
   for(const k of kws){
-    const df = bucketDocFreq(k);
+    const df = termDocFreq(k);
     const w = 1 / (1 + df);
     totWeight += w;
     if(df > 0) covWeight += w;
@@ -1443,7 +1458,7 @@ function retrieve(question, budget = 11000){
   return {
     context: picked.map(c => `[Source: ${c.doc}]\n${c.text}`).join("\n\n---\n\n"),
     sources: [...srcs],
-    quotes: [...best].map(([doc, text]) => ({ doc, text: excerptOf(text, kws) })).filter(x => x.text),
+    quotes: [...best].map(([doc, text]) => ({ doc, text: excerptOf(text, scoreKws) })).filter(x => x.text),
     coverage
   };
 }
@@ -2607,7 +2622,9 @@ function bucketDocFreq(k){
   _kwMemo.set(k, n);
   return n;
 }
-const bucketHasKw = (k) => bucketDocFreq(k) > 0;
+// a keyword the bucket writes out in full ("disaster recovery" for "dr") is covered too
+const termDocFreq = (k) => Math.max(bucketDocFreq(k), ...(ALIASES[k] || []).map(bucketDocFreq));
+const bucketHasKw = (k) => termDocFreq(k) > 0;
 function missingKeywords(q){
   return keywords(q.text).filter(k => !bucketHasKw(k)).slice(0, 6);
 }

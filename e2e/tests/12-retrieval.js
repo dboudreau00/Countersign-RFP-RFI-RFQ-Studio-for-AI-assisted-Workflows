@@ -33,4 +33,28 @@ module.exports = (test) => {
     const rows = await app.ledger();
     t.check('the Japanese question cites the Japanese document', /jp\.txt/.test(rows[3].src), rows[3].src);
   });
+
+  test('retrieval.acronyms-find-spelled-out-documents', async (t) => {
+    const app = await t.app();
+    await app.goto();
+    await app.seed({
+      docs: [
+        doc('bcdr.txt', 'Disaster recovery runs from a warm standby, tested twice a year.'),
+        doc('identity.txt', 'Single sign-on uses SAML 2.0. Multi-factor authentication is enforced for every account.'),
+        doc('network.txt', 'The edge firewall will drop packets from unknown networks.'),
+      ],
+      questions: [q('A1', 'Describe your DR approach.'), q('A2', 'Is SSO enforced?'), q('A3', 'Is MFA enforced?'), q('A4', 'Describe your SBOM process.')],
+    });
+    await app.goPage('workspace');
+    await app.page.click('#run-gaps');
+    await app.waitToast(/gap analysis complete/i);
+    const gap = await app.gaps();
+    t.check('"SSO" is covered by a document that says "single sign-on"', !gap.refs.includes('A2'), gap.refs.join(','));
+    t.check('"MFA" is covered by a document that says "multi-factor authentication"', !gap.refs.includes('A3'), gap.refs.join(','));
+    t.check('an acronym nobody wrote down is still a gap', gap.refs.includes('A4'), gap.refs.join(','));
+    const rows = await app.ledger();
+    t.match('a two-letter acronym ("DR") finds the disaster recovery document', rows[0].src, /bcdr\.txt/);
+    t.check('"dr" is a whole word: it does not cite a document about dropping packets', !/network\.txt/.test(rows[0].src), rows[0].src);
+    t.match('the SSO question cites the identity document', rows[1].src, /identity\.txt/);
+  });
 };

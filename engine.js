@@ -57,6 +57,11 @@ const CHUNK_SIZE     = 1100;   // chars per retrieval chunk
 const CONTEXT_BUDGET = 11000;  // chars of retrieved context per answer
 const MAX_BODY_BYTES = 1_500_000; // /ingest can carry a whole document
 const MAX_DOC_CHARS  = 220000;
+// /ingest can be called by anyone holding the token; without a ceiling, unique names grow
+// the index and kb/ until the process runs out of memory or disk. Same defaults as the app.
+const envInt = (k, d) => { const n = parseInt(process.env[k], 10); return Number.isFinite(n) && n > 0 ? n : d; };
+const MAX_DOCS        = envInt("MAX_DOCS", 500);
+const MAX_TOTAL_CHARS = envInt("MAX_TOTAL_CHARS", 60_000_000);
 // Retrieval cost grows with (query terms x chunks); an unbounded question could pin the
 // event loop for tens of seconds (a 20k-term question took ~22s on a 60k-chunk KB).
 const MAX_QUESTION_CHARS = 4000;
@@ -515,6 +520,15 @@ const routes = {
   "/ingest": async (res, body) => {
     if (typeof body.name !== "string" || !body.name.trim() || typeof body.text !== "string")
       return fail(res, 400, "Provide { name: string, text: string } (parse binary formats client-side or via the web app)");
+    // a document already indexed under any of its names is an update, not a new one
+    const prior = [body.name, canonicalName(body.name), legacyName(body.name)].filter((n) => KB.docs.has(n));
+    if (!prior.length && KB.docs.size >= MAX_DOCS)
+      return fail(res, 413, `The knowledge base is full (${MAX_DOCS} documents). Forget one first, or raise MAX_DOCS`);
+    let total = 0;
+    for (const t of KB.docs.values()) total += t.length;
+    for (const n of new Set(prior)) total -= KB.docs.get(n).length;
+    if (total + Math.min(body.text.length, MAX_DOC_CHARS) > MAX_TOTAL_CHARS)
+      return fail(res, 413, `The knowledge base would exceed ${MAX_TOTAL_CHARS} characters. Forget documents first, or raise MAX_TOTAL_CHARS`);
     const stored = addDoc(body.name, body.text, true);
     if (!stored) return fail(res, 400, "Document text is empty");
     for (const name of [stored.key, ...stored.superseded]) unindexDoc(name);

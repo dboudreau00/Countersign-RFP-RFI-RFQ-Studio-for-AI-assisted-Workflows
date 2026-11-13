@@ -41,6 +41,8 @@ node engine.js
 | `MODEL` | `claude-sonnet-5-5` | Generation model. Set `MODEL=claude-sonnet-4-6` to keep the previous default. |
 | `ALLOW_ORIGIN` | `*` | CORS origin for browser callers; tighten in production. With neither this nor `COUNTERSIGN_TOKEN` set, browser requests from other origins and non-loopback `Host` names are refused with a `403`. |
 | `CONCURRENCY` | `2` | Parallel upstream calls for `/batch` (max 4) |
+| `MAX_DOCS` | `500` | Documents the knowledge base holds. `/ingest` of a new name past it is refused with a `413`; re-ingesting an existing document always works. |
+| `MAX_TOTAL_CHARS` | `60000000` | Characters of indexed text across the knowledge base. An `/ingest` that would pass it is refused with a `413`. |
 
 `KB_DIR` and `DATA_FILE` default to paths **next to `engine.js`**, not to the
 working directory: running `node /srv/countersign/engine.js` from `/home/you`

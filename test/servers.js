@@ -262,6 +262,7 @@ async function main() {
     await documentChecks(T);
     await proxyChecks("proxy.js", proxyPort, "/rfp/proxy");
     await browserGuardChecks();
+    await capacityChecks(T);
     await bootLogChecks();
     await bindChecks();
 
@@ -420,6 +421,31 @@ async function main() {
       check("with a team token, other origins are left to the token check", r.status === 200, String(r.status));
     } finally {
       engineNoToken.kill(); proxyNoToken.kill(); engineWithOrigin.kill();
+    }
+  }
+
+  async function capacityChecks(T) {
+    const kb5 = path.join(WORK, "kb5");
+    fs.mkdirSync(kb5);
+    const port = await freePort();
+    const engine = await startProcess(NODE, [ENGINE], {
+      ANTHROPIC_API_KEY: "sk-test", COUNTERSIGN_TOKEN: TOKEN, PORT: String(port), HOST: "", KB_DIR: kb5,
+      DATA_FILE: path.join(WORK, "absent.json"), MAX_DOCS: "2", MAX_TOTAL_CHARS: "300",
+    }, port);
+    const ingest = (name, n) => request(port, "POST", "/ingest", { name, text: "x".repeat(n) }, T);
+    try {
+      check("under MAX_DOCS a new document is accepted", (await ingest("a.txt", 100)).status === 200 && (await ingest("b.txt", 100)).status === 200);
+      let r = await ingest("c.txt", 10);
+      check("at MAX_DOCS a new document is refused with 413", r.status === 413 && /MAX_DOCS/.test(r.text), `${r.status} ${r.text}`);
+      check("at MAX_DOCS an existing document can still be updated", (await ingest("a.txt", 150)).status === 200);
+      await request(port, "POST", "/forget", { name: "b.txt" }, T);
+      r = await ingest("c.txt", 200);
+      check("past MAX_TOTAL_CHARS a document is refused with 413", r.status === 413 && /MAX_TOTAL_CHARS/.test(r.text), `${r.status} ${r.text}`);
+      check("within MAX_TOTAL_CHARS it is accepted", (await ingest("c.txt", 100)).status === 200);
+      r = await request(port, "GET", "/health");
+      check("refused documents were never indexed or stored", r.json && r.json.docs === 2 && fs.readdirSync(kb5).length === 2, `${r.text} files=${fs.readdirSync(kb5).join(",")}`);
+    } finally {
+      engine.kill();
     }
   }
 

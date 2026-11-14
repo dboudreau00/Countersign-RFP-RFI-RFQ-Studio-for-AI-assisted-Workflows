@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/countersign-logo-dark.png">
+    <img src="docs/brand/countersign-logo.png" alt="Countersign" width="320">
+  </picture>
+</p>
+
 # Countersign: RFP Response Studio
 
 ![Countersign's Responses page: the question list with review status and coverage on the left, the selected answer with its cited sources on the right](docs/screenshots/responses.png)

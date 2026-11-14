@@ -66,12 +66,12 @@ into that folder only; see [`e2e/README.md`](e2e/README.md).
 | `index.html` | The entire app: a single self-contained HTML file. |
 | `proxy.php` | Optional server-side API proxy for shared hosting (cPanel / public_html). |
 | `proxy.js` | Optional server-side API proxy for Node 18+ hosts. |
-| `engine.js` | Standalone RAG answer engine (Node 18+): knowledge base + retrieval + grounded `/answer` API. See `ENGINE.md`. |
+| `engine.js` | Standalone RAG answer engine (Node 18+): knowledge base + retrieval + grounded `/answer` API, on Claude or Gemini (`PROVIDER`). See `ENGINE.md`. |
 | `ENGINE.md` | Full API reference and deployment guide for the engine. |
 | `countersign-data.json` | Optional "directory file": an exported workspace the app auto-loads. You create this from inside the app. |
 | `kb/` | Plain-text knowledge base folder for `engine.js` (see `kb/README.txt`). |
 | `eval/` | Evaluation harness for the engine: held-out question set, retrieval and groundedness metrics, CI drift canary. See `eval/README.md`. |
-| `test/` | Behaviour checks for `engine.js`, `proxy.js` and `proxy.php` against a local fake of the Anthropic API. Run `node test/servers.js`; CI runs it on Node 18 to 24. |
+| `test/` | Behaviour checks for `engine.js`, `proxy.js` and `proxy.php` against local fakes of the Anthropic and Gemini APIs. Run `node test/servers.js`; CI runs it on Node 18 to 24. |
 | `e2e/` | Browser end-to-end suite for `index.html` (Playwright, mocked LLM endpoints). See `e2e/README.md`. |
 | `artifact/` | Builds the Claude artifact edition from `index.html`. See [Install it as a Claude artifact](#install-it-as-a-claude-artifact-no-key-no-server). |
 | `LICENSE` | GNU AGPL-3.0. |

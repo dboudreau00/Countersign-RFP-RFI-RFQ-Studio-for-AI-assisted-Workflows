@@ -1,6 +1,7 @@
 /**
  * Behaviour checks for engine.js, proxy.js and (when `php` is installed) proxy.php,
- * run against a local fake of the Anthropic Messages API. Zero dependencies.
+ * run against local fakes of the Anthropic Messages API and Gemini's generateContent.
+ * Zero dependencies.
  *
  *   node test/servers.js
  */
@@ -67,6 +68,18 @@ function exitCode(args, env, ms = 8000) {
   });
 }
 
+// a fake of Gemini's generateContent; the answer comes after a thought part, as thinking models send it
+const geminiReply = (req, body, reply) => {
+  const prompt = JSON.stringify(body.contents);
+  const answer = (parts, finishReason = "STOP") => reply(200, {
+    candidates: [{ finishReason, content: { role: "model", parts } }], usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 9 } });
+  if (req.headers["x-goog-api-key"] !== "g-test") return reply(400, { error: { code: 400, message: "API key not valid", status: "INVALID_ARGUMENT" } });
+  if (prompt.includes("GEMBLOCK")) return reply(200, { promptFeedback: { blockReason: "PROHIBITED_CONTENT" } });
+  if (prompt.includes("GEMSAFETY")) return reply(200, { candidates: [{ finishReason: "SAFETY" }] });
+  if (prompt.includes("GEMMAX")) return answer([{ text: "Planning the answer.", thought: true }], "MAX_TOKENS");
+  answer([{ text: "Thinking about encryption.", thought: true }, { text: "We encrypt data at rest with AES-256-GCM." }]);
+};
+
 const seen = [];
 let flaky = 0;
 const upstream = http.createServer((req, res) => {
@@ -74,9 +87,10 @@ const upstream = http.createServer((req, res) => {
   req.on("data", (c) => (raw += c));
   req.on("end", () => {
     const body = JSON.parse(raw);
-    seen.push({ headers: req.headers, body });
+    seen.push({ url: req.url, headers: req.headers, body });
     const prompt = JSON.stringify(body.messages);
     const reply = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+    if (req.url.endsWith(":generateContent")) return geminiReply(req, body, reply);
     const message = (content, stop_reason = "end_turn", extra = {}) =>
       reply(200, { id: "msg_test", type: "message", role: "assistant", model: body.model, content, stop_reason, ...extra });
     if (prompt.includes("REFUSEME")) return message([], "refusal", { stop_details: { type: "refusal", category: "cyber", explanation: "" } });
@@ -93,7 +107,8 @@ async function main() {
   const copy = (file) => {
     const src = fs.readFileSync(path.join(ROOT, file), "utf8");
     if (!src.includes("https://api.anthropic.com/v1/messages")) throw new Error(`${file}: upstream URL not found`);
-    fs.writeFileSync(path.join(WORK, file), src.split("https://api.anthropic.com/v1/messages").join(upstreamUrl));
+    fs.writeFileSync(path.join(WORK, file), src.split("https://api.anthropic.com/v1/messages").join(upstreamUrl)
+      .split("https://generativelanguage.googleapis.com").join(upstreamUrl.replace("/v1/messages", "")));
   };
   ["engine.js", "proxy.js", "proxy.php"].forEach(copy);
   const ENGINE = path.join(WORK, "engine.js"), PROXY = path.join(WORK, "proxy.js");
@@ -265,6 +280,7 @@ async function main() {
     await capacityChecks(T);
     await bootLogChecks();
     await bindChecks();
+    await geminiChecks(T);
 
     const php = spawnSync("php", ["-m"], { encoding: "utf8" });
     if (php.status !== 0) console.log("SKIP proxy.php: php is not installed");
@@ -483,6 +499,40 @@ async function main() {
     const r = await request(port, "POST", "/proxy", { messages: [{ role: "user", content: "hi" }] });
     check("ALLOW_NO_TOKEN=1 lets proxy.js listen on 0.0.0.0 without a token", r.status === 200, String(r.status));
     child.kill();
+  }
+
+  async function geminiChecks(T) {
+    const env = { PROVIDER: "gemini", GEMINI_API_KEY: "g-test", ANTHROPIC_API_KEY: "", COUNTERSIGN_TOKEN: TOKEN, HOST: "",
+      KB_DIR: path.join(WORK, "kb"), DATA_FILE: path.join(WORK, "absent.json"), MODEL: "" };
+    const port = await freePort();
+    children.push(await startProcess(NODE, [ENGINE], { ...env, PORT: String(port) }, port));
+    let r = await request(port, "GET", "/health");
+    check("PROVIDER=gemini reports itself and its default model", r.json && r.json.provider === "gemini" && r.json.model === "gemini-flash-latest", r.text);
+    r = await request(port, "POST", "/answer", { question: "How is customer data encrypted at rest?" }, T);
+    const call = seen[seen.length - 1];
+    check("Gemini drafts through /answer without its thought part", r.status === 200 && r.json.answer === "We encrypt data at rest with AES-256-GCM.", `${r.status} ${r.text}`);
+    check("the Gemini key travels in x-goog-api-key, never in the URL",
+      call.headers["x-goog-api-key"] === "g-test" && !/key=/i.test(call.url) && /\/v1beta\/models\/gemini-flash-latest:generateContent$/.test(call.url), call.url);
+    check("the request becomes Gemini contents with an output budget",
+      Array.isArray(call.body.contents) && call.body.contents[0].role === "user" && call.body.generationConfig.maxOutputTokens > 0, JSON.stringify(call.body).slice(0, 200));
+    r = await request(port, "POST", "/answer", { question: "GEMMAX: how is customer data encrypted at rest?" }, T);
+    check("a Gemini reply that spent its budget thinking says so", r.status === 502 && /output tokens/.test(r.text), `${r.status} ${r.text}`);
+    r = await request(port, "POST", "/answer", { question: "GEMBLOCK: how is customer data encrypted at rest?" }, T);
+    check("a blocked Gemini prompt is a refusal, not an empty answer", r.status === 502 && /declined.*prohibited_content/.test(r.text), `${r.status} ${r.text}`);
+    r = await request(port, "POST", "/answer", { question: "GEMSAFETY: how is customer data encrypted at rest?" }, T);
+    check("a Gemini safety stop is a refusal that names it", r.status === 502 && /declined.*safety/.test(r.text), `${r.status} ${r.text}`);
+    r = await request(port, "POST", "/proxy", { system: "Be brief.", messages: [{ role: "user", content: "Hello" }, { role: "assistant", content: "Hi" }, { role: "user", content: "Encryption at rest?" }] }, T);
+    const sent = seen[seen.length - 1].body;
+    check("/proxy over Gemini answers in the Messages shape",
+      r.status === 200 && r.json.type === "message" && r.json.content[0].text === "We encrypt data at rest with AES-256-GCM." && r.json.stop_reason === "end_turn", r.text);
+    check("/proxy carries the system prompt and maps assistant to model",
+      sent.systemInstruction && sent.systemInstruction.parts[0].text === "Be brief." && sent.contents.map((c) => c.role).join() === "user,model,user", JSON.stringify(sent).slice(0, 300));
+    const noKey = await freePort();
+    children.push(await startProcess(NODE, [ENGINE], { ...env, GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "sk-test", PORT: String(noKey) }, noKey));
+    r = await request(noKey, "POST", "/answer", { question: "How is customer data encrypted at rest?" }, T);
+    check("PROVIDER=gemini needs GEMINI_API_KEY, not the Anthropic key", r.status === 500 && /GEMINI_API_KEY/.test(r.text), `${r.status} ${r.text}`);
+    const code = await exitCode([ENGINE], { ...env, PROVIDER: "bogus", PORT: String(await freePort()) });
+    check("an unknown PROVIDER stops the engine at start", code !== 0 && code !== null, `exit code ${code}`);
   }
 
   const failed = results.filter((ok) => !ok).length;

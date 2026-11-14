@@ -21,7 +21,9 @@
  *                             unless ALLOW_NO_TOKEN=1
  *   KB_DIR=./kb               directory of plain-text sources
  *   DATA_FILE=./countersign-data.json
- *   MODEL=claude-sonnet-5-5   generation model
+ *   PROVIDER=claude           claude (ANTHROPIC_API_KEY) or gemini (GEMINI_API_KEY); every
+ *                             endpoint keeps the Anthropic Messages shape either way
+ *   MODEL=claude-sonnet-5-5   generation model (gemini-flash-latest for gemini)
  *   ALLOW_ORIGIN=*            CORS origin for browser callers; with neither this nor a token
  *                             set, requests from other origins are refused
  *   COUNTERSIGN_TOKEN=...     shared secret; required on every POST when set
@@ -44,14 +46,19 @@ const fs = require("fs");
 const path = require("path");
 
 /* ---------------- config ---------------- */
-const API_KEY      = process.env.ANTHROPIC_API_KEY || "";
+const PROVIDER     = (process.env.PROVIDER || "claude").trim().toLowerCase();
+const PROVIDERS    = { claude: { keyVar: "ANTHROPIC_API_KEY", model: "claude-sonnet-5-5" },
+                       gemini: { keyVar: "GEMINI_API_KEY",    model: "gemini-flash-latest" } };
+if (!PROVIDERS[PROVIDER]) throw new Error(`PROVIDER must be claude or gemini, not "${PROVIDER}"`);
+const KEY_VAR      = PROVIDERS[PROVIDER].keyVar;
+const API_KEY      = process.env[KEY_VAR] || "";
 const TEAM_TOKEN   = process.env.COUNTERSIGN_TOKEN || "";
 const PORT         = parseInt(process.env.PORT || "8790", 10);
 const HOST         = process.env.HOST || "127.0.0.1";
 const ALLOW_NO_TOKEN = process.env.ALLOW_NO_TOKEN === "1";
 const KB_DIR       = process.env.KB_DIR || path.join(__dirname, "kb");
 const DATA_FILE    = process.env.DATA_FILE || path.join(__dirname, "countersign-data.json");
-const MODEL        = process.env.MODEL || "claude-sonnet-5-5";
+const MODEL        = process.env.MODEL || PROVIDERS[PROVIDER].model;
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
 const CHUNK_SIZE     = 1100;   // chars per retrieval chunk
 const CONTEXT_BUDGET = 11000;  // chars of retrieved context per answer
@@ -404,7 +411,53 @@ ${retrieval.context || "(No matching documentation found. Write a competent gene
 RFP QUESTION: ${question}`;
 }
 
+/* Gemini behind the same Messages API shape, so the routes and the web app need no change.
+   Thought parts are dropped; safety and recitation stops become a refusal. */
+const GEMINI_REFUSALS = new Set(["SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY"]);
+const blockText = (c) => typeof c === "string" ? c
+  : Array.isArray(c) ? c.map((b) => (b && b.type === "text" && typeof b.text === "string" ? b.text : "")).join("") : "";
+
+async function callGemini(body) {
+  const request = {
+    contents: body.messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: blockText(m.content) }] })),
+    generationConfig: { maxOutputTokens: body.max_tokens },
+    ...(body.system ? { systemInstruction: { parts: [{ text: blockText(body.system) }] } } : {}),
+  };
+  let r, text;
+  try {
+    // key in a header, never the query string, so it stays out of URLs and logs
+    r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MODEL)}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": API_KEY },
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(120_000),
+    });
+    text = await r.text();
+  } catch (err) {
+    return { status: 504, text: JSON.stringify({ error: { type: "timeout", message: "Upstream timed out or aborted: " + err.message } }) };
+  }
+  let data;
+  try { data = JSON.parse(text); } catch (e) { return { status: 502, text: JSON.stringify({ error: { type: "api_error", message: "Bad upstream response" } }) }; }
+  if (r.status !== 200) {
+    const message = (data.error && data.error.message) || "Gemini API error " + r.status;
+    return { status: r.status, text: JSON.stringify({ error: { type: "api_error", message } }) };
+  }
+  const cand = (data.candidates || [])[0] || {};
+  const reason = cand.finishReason || (data.promptFeedback && data.promptFeedback.blockReason) || "";
+  const out = ((cand.content && cand.content.parts) || []).filter((p) => !p.thought).map((p) => p.text || "").join("");
+  const refused = GEMINI_REFUSALS.has(reason) || (!cand.content && !!(data.promptFeedback && data.promptFeedback.blockReason));
+  const usage = data.usageMetadata || {};
+  return { status: 200, text: JSON.stringify({
+    type: "message", role: "assistant", model: MODEL,
+    content: out ? [{ type: "text", text: out }] : [],
+    stop_reason: refused ? "refusal" : reason === "MAX_TOKENS" ? "max_tokens" : "end_turn",
+    ...(refused ? { stop_details: { category: reason.toLowerCase() } } : {}),
+    usage: { input_tokens: usage.promptTokenCount || 0, output_tokens: usage.candidatesTokenCount || 0 },
+  }) };
+}
+
 async function callClaude(body) {
+  if (PROVIDER === "gemini") return callGemini(body);
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -668,7 +721,7 @@ const routes = {
   },
 };
 
-const server = http.createServer((req, res) => {
+function handle(req, res) {
   const url = req.url.split("?")[0];
   const refusal = browserRefusal(req);
   if (refusal) return fail(res, 403, refusal);
@@ -682,10 +735,10 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
   if (req.method === "GET" && url === "/health")
-    return send(res, 200, { ok: true, docs: KB.docs.size, chunks: KB.chunks.length, model: MODEL, token_required: !!TEAM_TOKEN });
+    return send(res, 200, { ok: true, docs: KB.docs.size, chunks: KB.chunks.length, provider: PROVIDER, model: MODEL, token_required: !!TEAM_TOKEN });
   if (req.method !== "POST" || !routes[url]) return fail(res, 404, "Unknown endpoint");
   if (!API_KEY && url !== "/ingest" && url !== "/forget" && url !== "/search")
-    return fail(res, 500, "Server not configured: set ANTHROPIC_API_KEY");
+    return fail(res, 500, "Server not configured: set " + KEY_VAR);
   if (TEAM_TOKEN && !tokenOk(req.headers["x-team-token"]))
     return fail(res, 401, "Missing or wrong team token");
   // A cross-site page can POST text/plain without a CORS preflight. Requiring JSON forces
@@ -722,7 +775,8 @@ const server = http.createServer((req, res) => {
       else if (!res.writableEnded) fail(res, 502, "Engine error: " + err.message);
     }
   });
-});
+}
+const server = http.createServer(handle);
 
 if (require.main === module) {
   if (!isLoopback(HOST) && !TEAM_TOKEN && !ALLOW_NO_TOKEN) {
@@ -741,5 +795,5 @@ if (require.main === module) {
 } else {
   // Required as a module (the eval harness does this): expose the pipeline without
   // touching the filesystem or opening a port. Callers load their own knowledge base.
-  module.exports = { KB, addDoc, reindex, indexDoc, unindexDoc, retrieve, buildPrompt, callClaude, answerText, tokenize, stem, STOP, MODEL, CHUNK_SIZE, ANSWER_MAX_TOKENS };
+  module.exports = { handle, loadKnowledgeBase, KB, PROVIDER, KEY_VAR, HAS_KEY: !!API_KEY, addDoc, reindex, indexDoc, unindexDoc, retrieve, buildPrompt, callClaude, answerText, tokenize, stem, STOP, MODEL, CHUNK_SIZE, ANSWER_MAX_TOKENS };
 }

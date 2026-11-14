@@ -31,14 +31,16 @@ node engine.js
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | none (required for `/answer`, `/batch`, `/proxy`) | Your Anthropic key, server-side only. `/search`, `/ingest` and `/forget` work without it. |
+| `PROVIDER` | `claude` | `claude` or `gemini`. Every endpoint, `/proxy` included, keeps the Anthropic Messages shape either way, so callers need no change. Any other value stops the engine at start. |
+| `ANTHROPIC_API_KEY` | none (required for `/answer`, `/batch`, `/proxy`) | Your Anthropic key, server-side only, for `PROVIDER=claude`. `/search`, `/ingest` and `/forget` work without it. |
+| `GEMINI_API_KEY` | none | Your Google Gemini key, for `PROVIDER=gemini`. Sent in the `x-goog-api-key` header, never in a URL. Thought parts are dropped; a safety or recitation stop is reported as a refusal, and a reply that spent its budget thinking as out of output tokens. |
 | `COUNTERSIGN_TOKEN` | *(off)* | Shared secret; all POSTs must send `X-Team-Token` |
 | `PORT` | `8790` | Listen port |
 | `HOST` | `127.0.0.1` | Listen address. Any non-loopback address (for example `0.0.0.0`) makes the engine refuse to start without `COUNTERSIGN_TOKEN`. |
 | `ALLOW_NO_TOKEN` | *(off)* | Set to `1` to run on a non-loopback `HOST` without a token. Only on a network you trust. |
 | `KB_DIR` | `<engine.js dir>/kb` | Directory of `.txt/.md/.csv/.json` sources |
 | `DATA_FILE` | `<engine.js dir>/countersign-data.json` | Workspace exported from the web app |
-| `MODEL` | `claude-sonnet-5-5` | Generation model. Set `MODEL=claude-sonnet-4-6` to keep the previous default. |
+| `MODEL` | `claude-sonnet-5-5` (`gemini-flash-latest` for Gemini) | Generation model. Set `MODEL=claude-sonnet-4-6` to keep the previous default. |
 | `ALLOW_ORIGIN` | `*` | CORS origin for browser callers; tighten in production. With neither this nor `COUNTERSIGN_TOKEN` set, browser requests from other origins and non-loopback `Host` names are refused with a `403`. |
 | `CONCURRENCY` | `2` | Parallel upstream calls for `/batch` (max 4) |
 | `MAX_DOCS` | `500` | Documents the knowledge base holds. `/ingest` of a new name past it is refused with a `413`; re-ingesting an existing document always works. |
@@ -67,7 +69,7 @@ All POST bodies are JSON and must be sent as `Content-Type: application/json`
 
 ### `GET /health`
 ```json
-{ "ok": true, "docs": 42, "chunks": 1187, "model": "claude-sonnet-5-5", "token_required": true }
+{ "ok": true, "docs": 42, "chunks": 1187, "provider": "claude", "model": "claude-sonnet-5-5", "token_required": true }
 ```
 
 ### `POST /answer`: the main event

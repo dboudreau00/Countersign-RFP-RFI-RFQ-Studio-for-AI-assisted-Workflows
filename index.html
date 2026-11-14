@@ -1547,6 +1547,20 @@ function claudeText(data){
     throw new Error("The model used its whole output budget before writing an answer");
   return text;
 }
+/* Text of a Gemini reply. Thought parts are the model's reasoning, not the answer; a blocked
+   prompt or a safety or recitation stop is an error, as is a reply that spent its budget thinking. */
+const GEMINI_STOPS = new Set(["SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY"]);
+function geminiText(data){
+  const cand = (data.candidates || [])[0] || {};
+  const stop = cand.finishReason || "";
+  const blocked = data.promptFeedback && data.promptFeedback.blockReason;
+  if(blocked || GEMINI_STOPS.has(stop))
+    throw new Error("Gemini declined this request (" + String(blocked || stop).toLowerCase() + "). Rephrase the question or choose another model in Settings");
+  const text = ((cand.content && cand.content.parts) || []).filter(x => !x.thought).map(x => x.text || "").join("");
+  if(!text.trim() && stop === "MAX_TOKENS")
+    throw new Error("The model used its whole output budget before writing an answer");
+  return text;
+}
 const DEFAULT_GEMINI_MODEL = "gemini-flash-latest";
 const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
 
@@ -1630,8 +1644,7 @@ async function askAIOnce(prompt, opts){
       })
     });
     if(!r.ok) await bail("Gemini API" + (r.status === 404 ? " (unknown model “" + model + "”, set a current one in Settings)" : ""), r);
-    const data = await r.json();
-    return data.candidates?.[0]?.content?.parts?.map(x => x.text || "").join("") || "";
+    return geminiText(await r.json());
   }
   // openai-compatible
   if(!p.key) throw new Error("Add your API key in Settings");

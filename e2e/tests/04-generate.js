@@ -91,6 +91,22 @@ module.exports = (test, cfg) => {
     t.match('404 explains the model name is wrong', (await app.toasts()).map((x) => x.text).join(' | '), /unknown model/i);
   });
 
+  test('gen.gemini-thoughts-and-stops', async (t) => {
+    const app = await ready(t, { provider: 'gemini', key: randKey('test-gemini-') });
+    const answer = defaultAnswerText('A1');
+    const reply = (parts, finishReason = 'STOP') => () => ({ json: { candidates: [{ finishReason, content: { role: 'model', parts } }] } });
+    app.mock.gemini = reply([{ text: 'Weighing the policy sections first.', thought: true }, { text: answer }]);
+    await app.generateRow(0);
+    t.eq('a thought part is left out of the answer', (await app.ledger())[0].answer, answer);
+    app.mock.gemini = () => ({ json: { promptFeedback: { blockReason: 'PROHIBITED_CONTENT' } } });
+    await app.generateRow(0);
+    t.match('a blocked prompt is reported, not saved as an empty answer', (await app.toasts()).map((x) => x.text).join(' | '), /gemini declined this request \(prohibited_content\)/i);
+    app.mock.gemini = reply([{ text: 'Still planning.', thought: true }], 'MAX_TOKENS');
+    await app.generateRow(0);
+    t.match('a reply that spent its budget thinking says so', (await app.toasts()).map((x) => x.text).join(' | '), /whole output budget/i);
+    t.eq('the earlier answer is kept', (await app.ledger())[0].answer, answer);
+  });
+
   test('gen.openai-reasoning-model-fallback', async (t) => {
     const app = await ready(t, { provider: 'openai', key: randKey('test-openai-'), model: 'o4-mini' });
     const reply = { choices: [{ index: 0, message: { role: 'assistant', content: defaultAnswerText('A1') }, finish_reason: 'stop' }] };

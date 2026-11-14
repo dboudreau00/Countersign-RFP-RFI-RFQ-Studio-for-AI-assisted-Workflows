@@ -55,7 +55,7 @@ node eval/run.js
 
 Details, metric definitions and how to add cases: [`eval/README.md`](eval/README.md).
 
-The web app has its own browser suite in [`e2e/`](e2e/): 782 checks that drive the real
+The web app has its own browser suite in [`e2e/`](e2e/): 786 checks that drive the real
 page in headless Chromium, with every LLM endpoint mocked. It needs Playwright, installed
 into that folder only; see [`e2e/README.md`](e2e/README.md).
 

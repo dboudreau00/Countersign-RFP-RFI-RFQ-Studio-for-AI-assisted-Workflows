@@ -73,6 +73,7 @@ into that folder only; see [`e2e/README.md`](e2e/README.md).
 | `eval/` | Evaluation harness for the engine: held-out question set, retrieval and groundedness metrics, CI drift canary. See `eval/README.md`. |
 | `test/` | Behaviour checks for `engine.js`, `proxy.js` and `proxy.php` against a local fake of the Anthropic API. Run `node test/servers.js`; CI runs it on Node 18 to 24. |
 | `e2e/` | Browser end-to-end suite for `index.html` (Playwright, mocked LLM endpoints). See `e2e/README.md`. |
+| `artifact/` | Builds the Claude artifact edition from `index.html`. See [Install it as a Claude artifact](#install-it-as-a-claude-artifact-no-key-no-server). |
 | `LICENSE` | GNU AGPL-3.0. |
 
 ## Quick start (no server code at all)
@@ -88,7 +89,8 @@ into that folder only; see [`e2e/README.md`](e2e/README.md).
      to keep the previous default)
    - **Gemini**: paste a Gemini key (defaults to `gemini-flash-latest`)
    - **OpenAI-compatible**: base URL + key, for OpenAI or a Copilot endpoint
-   - **Claude** needs no key, but only inside Claude.ai
+   - **Claude** needs no key, but only inside Claude.ai (see
+     [Install it as a Claude artifact](#install-it-as-a-claude-artifact-no-key-no-server))
 4. Optional: the moon icon beside Settings switches to dark mode (it follows the OS
    preference by default).
 
@@ -99,6 +101,56 @@ into that folder only; see [`e2e/README.md`](e2e/README.md).
 > Leave the **Model** field blank to use the default shown above. Model names go
 > out of date: if generation fails with a 404 naming your model, clear the field
 > or pick a current one from the provider's model list.
+
+## Install it as a Claude artifact (no key, no server)
+
+Countersign also runs inside Claude, as a private artifact in your own Claude account.
+Answers are drafted through that account, so there is no API key to paste and no server
+to run, and your work is saved to the account rather than to one browser.
+
+You need Node 18 or later and [Claude Code](https://claude.com/claude-code), signed in to
+your Claude account: it publishes the page for you.
+
+1. Get the code and build the artifact edition:
+
+   ```bash
+   git clone https://github.com/dboudreau00/Countersign-RFP-RFI-RFQ-Studio-for-AI-assisted-Workflows.git
+   cd Countersign-RFP-RFI-RFQ-Studio-for-AI-assisted-Workflows
+   node artifact/make-artifact.mjs
+   ```
+
+   The build downloads SheetJS and pdf.js from the URLs `index.html` pins, stops if a
+   file does not match the integrity hash pinned next to its URL, and writes the page and
+   its three library files to `artifact/dist/`.
+
+2. Start Claude Code in the same folder and ask it:
+
+   ```text
+   Publish artifact/dist/index.html as an artifact. Publish the three files under
+   artifact/dist/vendor with it, at the same paths next to the page
+   (vendor/xlsx/xlsx.full.min.js, vendor/pdfjs/pdf.min.mjs, vendor/pdfjs/pdf.worker.min.mjs),
+   and declare the capabilities sample, db, user and downloads.
+   ```
+
+   Claude replies with a claude.ai link. The artifact is private: only you can open it
+   until you share it.
+
+3. Open the link. Claude asks for your permission before the first answer is drafted:
+   allow it. Then add documents on **Knowledge base**, add the questions on **Responses**
+   (import the RFP or add them by hand), and press **Draft remaining**.
+
+**Sharing.** Use the artifact's **Share** menu. Each person who opens it drafts through
+their own Claude account and keeps a private workspace that nobody else can read, not
+even you as the owner. Someone with view-only access can still use it, but their work is
+kept in their browser instead of their account.
+
+**Updating.** After a `git pull`, run `node artifact/make-artifact.mjs` again and ask
+Claude Code to publish `artifact/dist` the same way, to your existing link (paste it).
+The link stays the same and everyone's saved work is kept.
+
+Inside Claude the page cannot reach other servers, so Claude is the only AI provider (the
+API key, team proxy and engine settings are hidden), and exports go through Claude's own
+save prompt. What the build changes, and why: [`artifact/README.md`](artifact/README.md).
 
 ## Shipping a shared knowledge base (the directory file)
 

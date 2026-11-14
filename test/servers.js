@@ -281,6 +281,7 @@ async function main() {
     await bootLogChecks();
     await bindChecks();
     await geminiChecks(T);
+    await atomicWriteChecks(T);
 
     const php = spawnSync("php", ["-m"], { encoding: "utf8" });
     if (php.status !== 0) console.log("SKIP proxy.php: php is not installed");
@@ -533,6 +534,23 @@ async function main() {
     check("PROVIDER=gemini needs GEMINI_API_KEY, not the Anthropic key", r.status === 500 && /GEMINI_API_KEY/.test(r.text), `${r.status} ${r.text}`);
     const code = await exitCode([ENGINE], { ...env, PROVIDER: "bogus", PORT: String(await freePort()) });
     check("an unknown PROVIDER stops the engine at start", code !== 0 && code !== null, `exit code ${code}`);
+  }
+
+  async function atomicWriteChecks(T) {
+    const dir = path.join(WORK, "kb-atomic");
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, "kept.txt"), "Backups run hourly and are kept for thirty days.");
+    fs.writeFileSync(path.join(dir, "half.txt.tmp4242"), "A write that a stopped process left behind.");
+    const port = await freePort();
+    children.push(await startProcess(NODE, [ENGINE], { ANTHROPIC_API_KEY: "sk-test", COUNTERSIGN_TOKEN: TOKEN, HOST: "", KB_DIR: dir,
+      DATA_FILE: path.join(WORK, "absent.json"), PORT: String(port) }, port));
+    let r = await request(port, "GET", "/health");
+    check("a leftover temporary file in kb/ is not indexed", r.json && r.json.docs === 1, r.text);
+    r = await request(port, "POST", "/ingest", { name: "fresh.txt", text: "Restores are tested every quarter." }, T);
+    const names = fs.readdirSync(dir);
+    check("/ingest writes the file under its own name and leaves no temporary file",
+      r.status === 200 && names.includes("fresh.txt") && !names.some((n) => /\.tmp\d+$/.test(n) && n !== "half.txt.tmp4242"), `${r.status} ${names.join(", ")}`);
+    check("the written file holds the whole text", fs.readFileSync(path.join(dir, "fresh.txt"), "utf8") === "Restores are tested every quarter.");
   }
 
   const failed = results.filter((ok) => !ok).length;

@@ -250,7 +250,7 @@ function addDoc(name, text, persist) {
   if (persist) {
     try {
       fs.mkdirSync(KB_DIR, { recursive: true });
-      fs.writeFileSync(path.join(KB_DIR, key), text);
+      writeAtomic(path.join(KB_DIR, key), text);
       KB.files.set(key, key);
       persisted = true;
     } catch (e) { console.warn("[kb] persist failed:", e.message); persisted = false; }
@@ -293,6 +293,21 @@ function loadKnowledgeBase() {
     if (dup !== undefined && dup !== f) KB.docs.delete(dup);
   }
   reindex();
+}
+
+/* Write a kb/ file through a temporary name and a rename, so a process ended mid-write
+   (a service stop, a power cut) leaves the old file or the new one, never half of one.
+   The loader only reads .txt/.md/.csv/.json names, so a stray temporary file is never
+   indexed. Windows can refuse the rename while a scanner holds the file: write in place then. */
+function writeAtomic(file, text) {
+  const tmp = `${file}.tmp${process.pid}`;
+  try {
+    fs.writeFileSync(tmp, text);
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch (e2) {}
+    fs.writeFileSync(file, text);
+  }
 }
 
 /* Small alias table so acronym-heavy RFP questions still hit spelled-out docs. No

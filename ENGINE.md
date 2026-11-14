@@ -59,7 +59,8 @@ Three ways, freely combined; everything is indexed together at boot:
    *Settings → Workspace file → Export* and place `countersign-data.json` next to `engine.js`.
 2. **`kb/` directory.** Drop plain `.txt`, `.md`, `.csv`, or `.json` files in it.
 3. **`POST /ingest` at runtime.** Pushed documents are persisted into `kb/`
-   so they survive restarts.
+   so they survive restarts. Each file is written under a temporary name and then
+   renamed, so a process stopped mid-write leaves the old file or the new one.
 
 ## API
 

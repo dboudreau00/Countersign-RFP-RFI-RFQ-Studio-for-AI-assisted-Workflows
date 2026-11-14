@@ -1,2 +1,4 @@
 e2e/node_modules/
 e2e/out/
+artifact/dist/
+artifact/vendor/

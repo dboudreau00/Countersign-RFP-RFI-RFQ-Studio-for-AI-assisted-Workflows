@@ -28,6 +28,10 @@ The screenshots show a made-up vendor and RFP. `node e2e/scripts/screenshots.js`
 them from the real page, using the Playwright install described in
 [`e2e/README.md`](e2e/README.md).
 
+Design trade-offs and known limits are under
+[Architecture and design trade-offs](#architecture-and-design-trade-offs) and
+[Known limits](#known-limits).
+
 ## Measured, not assumed
 
 [![eval](https://github.com/dboudreau00/Countersign/actions/workflows/eval.yml/badge.svg)](https://github.com/dboudreau00/Countersign/actions/workflows/eval.yml)
@@ -320,6 +324,61 @@ public_html/
 
 That's the whole stack: one page, one proxy, one data file.
 
+## Architecture and design trade-offs
+
+### Architecture
+
+Three tiers, each optional after the first.
+
+- **The page** (`index.html`) is the whole app. It parses the knowledge base and the RFP
+  in the browser, retrieves from the knowledge base locally, calls the chosen provider,
+  and exports DOCX, XLSX or CSV. Work is saved in the browser's localStorage. Keys and
+  team tokens stay in memory and are never persisted.
+- **A proxy** (`proxy.php` or `proxy.js`) holds the provider key server-side. It checks a
+  team token, caps request size, and forwards only `model`, `max_tokens`, `messages` and
+  `system`.
+- **The engine** (`engine.js`) is the proxy plus a server-side knowledge base. A question
+  is tokenized, acronyms are expanded, every chunk is scored with TF-IDF, the best chunks
+  (about 11 KB) are packed into a grounded prompt, and the provider drafts the answer. The
+  reply carries the answer, its sources, a coverage score and the terms it could not find.
+  See [`ENGINE.md`](ENGINE.md).
+
+A team shares one knowledge base through an exported `countersign-data.json` next to the
+page, or through the engine's `kb/` folder. The
+[artifact edition](#install-it-as-a-claude-artifact-no-key-no-server) is built from the
+same `index.html` by `artifact/make-artifact.mjs`.
+
+### Design trade-offs
+
+- **One file, no build step.** The app is a single HTML page you can copy to any web root.
+  The price is that the PDF, DOCX and XLSX libraries load from CDNs, each pinned by an
+  integrity hash. If a CDN is blocked the app still runs, and those formats are
+  unavailable.
+- **Lexical retrieval, not embeddings.** TF-IDF with light stemming and an acronym table is
+  transparent, needs no key or vector store, and can be scored in CI. The price is
+  vocabulary mismatch: a question worded unlike the documentation can score as a gap. It
+  is tuned to over-flag, because reviewing a false gap costs a minute and shipping an
+  unsubstantiated answer costs the bid. In the engine, moving to embeddings means
+  replacing `retrieve()`; the API stays the same.
+- **Grounding is checked, loosely.** The prompt forbids inventing certifications, SLAs,
+  customers or figures, the coverage score flags questions the documentation cannot
+  answer, and the evaluation harness scores a recorded set of drafted answers for
+  groundedness. That scorer is lexical: it catches an invented figure, standard or name,
+  and it misses a paraphrased false claim with no specifics. Every answer is a draft with
+  its sources attached, for a person to review and approve.
+- **State lives in the browser.** The web app has no database and no accounts. A save
+  needs room for two copies of the knowledge base in localStorage, so the master copy
+  belongs in `countersign-data.json`.
+- **Small proxies.** Zero dependencies, a hashed token comparison, an allowlist of
+  forwarded fields, and a loopback default on the Node servers. They do not throttle
+  request frequency, so put a rate limiter in front.
+- **Imported files are not trusted with endpoints.** The proxy or engine URL and the model
+  come only from the `countersign-data.json` next to the page, so a workspace file
+  received from someone else cannot redirect your key or your prompts.
+- **Two retrieval implementations.** The browser and the engine each have their own, with
+  the same design. The evaluation harness exercises the engine's; the browser's is
+  covered by the end-to-end suite.
+
 ## Known limits
 
 - **Write back into original rewrites the issuer's workbook through SheetJS.** Cell values,
@@ -341,6 +400,21 @@ That's the whole stack: one page, one proxy, one data file.
 - **Question extraction depends on the model.** It asks for at most 40 items and merges
   duplicates, so a very long RFP may come back consolidated. Check the question list against the
   source document before generating; the app warns when a reply was cut off mid-list.
+- **Groundedness checks are lexical.** The evaluation harness catches an invented figure,
+  standard or name. A paraphrased false claim with no specifics passes, so every answer
+  still needs a human read.
+- **The engine holds its index in memory.** Budget about 6 to 9 times the raw text in RAM:
+  roughly 580 MB resident for a full 60 MB knowledge base.
+- **Browser storage is small.** localStorage holds about 5 to 10 MB in most browsers, and a
+  save needs room for the old and the new copy, so a knowledge base above roughly half the
+  quota stops saving. Keep the master copy in `countersign-data.json`.
+- **There is no per-user access control.** On the proxies and the engine the shared team
+  token is the only access control, and `countersign-data.json` is readable by anyone who
+  can reach its URL.
+- **There is no request throttling.** The proxies and the engine do not limit request
+  frequency, and every answer costs API credits. Put a rate limiter in front.
+- **The keyless Claude provider only works inside Claude.ai.** A self-hosted deployment
+  uses Claude API, the team proxy or the engine.
 
 ## Going further: the answer engine
 

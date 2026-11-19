@@ -30,7 +30,7 @@ them from the real page, using the Playwright install described in
 
 ## Measured, not assumed
 
-[![eval](https://github.com/dboudreau00/Countersign-RFP-RFI-RFQ-Studio-for-AI-assisted-Workflows/actions/workflows/eval.yml/badge.svg)](https://github.com/dboudreau00/Countersign-RFP-RFI-RFQ-Studio-for-AI-assisted-Workflows/actions/workflows/eval.yml)
+[![eval](https://github.com/dboudreau00/Countersign/actions/workflows/eval.yml/badge.svg)](https://github.com/dboudreau00/Countersign/actions/workflows/eval.yml)
 
 The answer engine ships with its own evaluation harness in [`eval/`](eval/). A held-out set
 of 35 RFP questions runs against a fictional vendor's documentation and reports:
@@ -114,8 +114,8 @@ your Claude account: it publishes the page for you.
 1. Get the code and build the artifact edition:
 
    ```bash
-   git clone https://github.com/dboudreau00/Countersign-RFP-RFI-RFQ-Studio-for-AI-assisted-Workflows.git
-   cd Countersign-RFP-RFI-RFQ-Studio-for-AI-assisted-Workflows
+   git clone https://github.com/dboudreau00/Countersign.git
+   cd Countersign
    node artifact/make-artifact.mjs
    ```
 
